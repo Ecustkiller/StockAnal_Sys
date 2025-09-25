@@ -566,6 +566,12 @@ def zhangting_analysis():
     return render_template('zhangting_analysis.html')
 
 
+# 涨停分析测试页面
+@app.route('/test_zhangting')
+def test_zhangting():
+    return render_template('test_zhangting.html')
+
+
 def make_cache_key_with_stock():
     """创建包含股票代码的自定义缓存键"""
     path = request.path

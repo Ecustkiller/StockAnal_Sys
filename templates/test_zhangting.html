@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>涨停分析测试页面</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .debug { background: #f0f0f0; padding: 10px; margin: 10px 0; }
+        select { padding: 5px; margin: 10px 0; }
+        button { padding: 5px 10px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>涨停分析测试页面</h1>
+    
+    <div class="debug">
+        <h3>调试信息：</h3>
+        <div id="debug-log"></div>
+    </div>
+    
+    <div>
+        <label>选择交易日期：</label>
+        <select id="tradeDateSelect">
+            <option value="">加载中...</option>
+        </select>
+        <button onclick="loadZhangTingData()">加载数据</button>
+    </div>
+    
+    <div id="result"></div>
+
+    <script>
+        function log(message) {
+            const debugDiv = document.getElementById('debug-log');
+            debugDiv.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+            console.log(message);
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            log('页面加载完成，开始初始化...');
+            loadTradingDates();
+        });
+
+        // 加载交易日期列表
+        async function loadTradingDates() {
+            log('开始加载交易日期...');
+            try {
+                const response = await fetch('/api/zhangting/trading_dates');
+                log('API响应状态: ' + response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`API请求失败: ${response.status}`);
+                }
+                
+                const dates = await response.json();
+                log('获取到的日期数据: ' + JSON.stringify(dates));
+                
+                const selectElement = document.getElementById('tradeDateSelect');
+                if (!selectElement) {
+                    throw new Error('找不到日期选择器元素');
+                }
+                
+                selectElement.innerHTML = '<option value="">请选择日期...</option>';
+                
+                dates.forEach((date, index) => {
+                    const option = document.createElement('option');
+                    option.value = date;
+                    option.textContent = formatDate(date);
+                    if (index === 0) {
+                        option.selected = true;
+                    }
+                    selectElement.appendChild(option);
+                });
+                
+                log(`成功加载${dates.length}个交易日期`);
+                
+            } catch (error) {
+                log('加载交易日期失败: ' + error.message);
+            }
+        }
+
+        // 加载涨停数据
+        async function loadZhangTingData() {
+            const selectedDate = document.getElementById('tradeDateSelect').value;
+            log('开始加载涨停数据，选中日期: ' + selectedDate);
+            
+            if (!selectedDate) {
+                log('未选择日期，跳过数据加载');
+                return;
+            }
+            
+            try {
+                log('请求数据...');
+                const response = await fetch(`/api/zhangting/data?date=${selectedDate}`);
+                log('数据API响应状态: ' + response.status);
+                
+                const data = await response.json();
+                log('获取到的数据: ' + JSON.stringify(data).substring(0, 200) + '...');
+                
+                const resultDiv = document.getElementById('result');
+                if (data && data.length > 0) {
+                    resultDiv.innerHTML = `
+                        <h3>涨停数据 (${data.length}条)</h3>
+                        <table border="1" style="border-collapse: collapse;">
+                            <tr>
+                                <th>股票代码</th>
+                                <th>股票名称</th>
+                                <th>连续涨停天数</th>
+                                <th>涨跌幅</th>
+                            </tr>
+                            ${data.slice(0, 5).map(stock => `
+                                <tr>
+                                    <td>${stock.股票代码}</td>
+                                    <td>${stock.股票名称}</td>
+                                    <td>${stock.连续涨停天数}</td>
+                                    <td>${stock.涨跌幅}%</td>
+                                </tr>
+                            `).join('')}
+                        </table>
+                    `;
+                } else {
+                    resultDiv.innerHTML = '<p>没有获取到涨停数据</p>';
+                }
+                
+            } catch (error) {
+                log('加载涨停数据失败: ' + error.message);
+                document.getElementById('result').innerHTML = '<p style="color: red;">加载失败: ' + error.message + '</p>';
+            }
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+            const weekday = weekdays[date.getDay()];
+            return `${dateStr} ${weekday}`;
+        }
+    </script>
+</body>
+</html>

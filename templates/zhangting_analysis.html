@@ -302,15 +302,24 @@
                 </div>
                 <div class="col-md-6">
                     <select class="form-select" id="tradeDateSelect" onchange="loadZhangTingData()">
-                        <option value="">请选择日期...</option>
+                        <option value="">加载中...</option>
                     </select>
                 </div>
                 <div class="col-md-3">
                     <button class="btn btn-primary" onclick="refreshData()">
                         <i class="fas fa-sync-alt"></i> 刷新数据
                     </button>
+                    <button class="btn btn-secondary ms-2" onclick="testAPI()">
+                        <i class="fas fa-bug"></i> 测试API
+                    </button>
                 </div>
             </div>
+        </div>
+        
+        <!-- 调试信息面板 -->
+        <div id="debugPanel" class="alert alert-info" style="display: none;">
+            <h6><i class="fas fa-bug"></i> 调试信息</h6>
+            <div id="debugLog"></div>
         </div>
         
         <!-- 数据加载状态 -->
@@ -801,6 +810,54 @@ function refreshData() {
     } else {
         loadTradingDates();
     }
+}
+
+// 调试功能
+function debugLog(message) {
+    console.log(message);
+    const debugLogDiv = document.getElementById('debugLog');
+    if (debugLogDiv) {
+        const timestamp = new Date().toLocaleTimeString();
+        debugLogDiv.innerHTML += `<div>${timestamp}: ${message}</div>`;
+        document.getElementById('debugPanel').style.display = 'block';
+    }
+}
+
+function testAPI() {
+    debugLog('开始测试API...');
+    
+    // 测试交易日期API
+    fetch('/api/zhangting/trading_dates')
+        .then(response => {
+            debugLog(`交易日期API响应: ${response.status}`);
+            return response.json();
+        })
+        .then(data => {
+            debugLog(`获取到${data.length}个交易日期: ${data.slice(0, 3).join(', ')}...`);
+            
+            // 测试数据API
+            if (data.length > 0) {
+                const testDate = data[0];
+                debugLog(`测试数据API，使用日期: ${testDate}`);
+                
+                return fetch(`/api/zhangting/data?date=${testDate}`);
+            }
+        })
+        .then(response => {
+            if (response) {
+                debugLog(`数据API响应: ${response.status}`);
+                return response.json();
+            }
+        })
+        .then(data => {
+            if (data) {
+                debugLog(`获取到${data.length}条涨停数据`);
+                debugLog('API测试完成 ✅');
+            }
+        })
+        .catch(error => {
+            debugLog(`API测试失败: ${error.message} ❌`);
+        });
 }
 </script>
 {% endblock %}
