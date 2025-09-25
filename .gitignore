@@ -82,10 +82,3 @@ dump.rdb
 .env.development.local
 .env.test.local
 .env.production.local 
-
-# md
-CLAUDE.md
-akshare.md
-.server.pid
-
-eval_results/

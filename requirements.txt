@@ -1,12 +1,11 @@
-# Core StockAnal_Sys Dependencies
 numpy>=1.24.0
-pandas>=2.3.0  # Upgraded for TradingAgents
+pandas==2.2.2
 scipy>=1.13.0,<1.14.0
-akshare>=1.16.98  # Upgraded for TradingAgents
-tqdm>=4.67.1  # Upgraded for TradingAgents
-openai>=1.0.0,<2.0.0 # Upgraded for TradingAgents (Major change, requires code update)
-requests>=2.32.4 # Upgraded for TradingAgents
-python-dotenv>=1.0.1 # Upgraded for TradingAgents
+akshare>=1.16.56
+tqdm==4.67.1
+openai==0.28.0
+requests==2.32.3
+python-dotenv==1.0.1
 flask==3.1.0
 loguru==0.7.2
 matplotlib==3.9.2
@@ -21,45 +20,8 @@ flask_swagger_ui
 sqlalchemy
 flask-cors
 flask-caching
-gunicorn==20.1.0
-PyYAML==6.0.2
-scikit-learn==1.2.2
-statsmodels==0.14.5
-pytest==7.3.1
-tavily-python
-
-# Deployment & Caching
-supervisor==4.2.5
-redis>=6.2.0  # Upgraded for TradingAgents
-
-# Dependencies from TradingAgents
-backtrader>=1.9.78.123
-baostock>=0.8.8
-chainlit>=2.5.5
-chromadb>=1.0.12
-dashscope>=1.20.0
-eodhd>=1.0.32
-feedparser>=6.0.11
-finnhub-python>=2.4.23
-langchain-anthropic>=0.3.15
-langchain-experimental>=0.3.4
-langchain-google-genai>=2.1.5
-langchain-openai>=0.3.23
-langgraph>=0.4.8
-markdown>=3.4.0
-parsel>=1.10.0
-plotly>=5.0.0
-praw>=7.8.1
-psutil>=6.1.0
-pymongo>=4.0.0
-pypandoc>=1.11
-pytdx>=1.72
-pytz>=2025.2
-questionary>=2.1.0
-rich>=14.0.0
-setuptools>=80.9.0
-stockstats>=0.6.5
-streamlit>=1.28.0
-tushare>=1.4.21
-typing-extensions>=4.14.0
-yfinance>=0.2.63
+gunicorn==20.1.0  
+PyYAML==6.0  
+scikit-learn==1.2.2  #
+statsmodels==0.13.5  
+pytest==7.3.1  

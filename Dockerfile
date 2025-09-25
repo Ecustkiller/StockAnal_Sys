@@ -37,4 +37,4 @@ COPY . .
 EXPOSE 8888
 
 # 使用gunicorn启动应用
-CMD ["gunicorn", "--bind", "0.0.0.0:8888", "--workers", "4", "app.web.web_server:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8888", "--workers", "4", "web_server:app"] 
