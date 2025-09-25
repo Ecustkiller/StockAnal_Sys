@@ -67,8 +67,29 @@ class ZhangTingAnalyzer:
             return cached_data
         
         try:
-            # 获取交易日历
-            trade_dates = ak.tool_trade_date_hist_sina()
+            # 尝试多种方式获取交易日历
+            trade_dates = None
+            
+            # 方法1：通过股票历史数据获取交易日期
+            try:
+                stock_data = ak.stock_zh_a_hist(symbol="000001", period="daily", start_date="20240901", end_date="20251231", adjust="")
+                if stock_data is not None and not stock_data.empty:
+                    dates = pd.to_datetime(stock_data['日期']).dt.date.unique()
+                    dates = sorted(dates, reverse=True)  # 最新日期在前
+                    recent_dates = dates[:days]
+                    self._set_cache(cache_key, recent_dates)
+                    logger.info(f"通过股票历史数据获取到{len(recent_dates)}个交易日期")
+                    return recent_dates
+            except Exception as e1:
+                logger.warning(f"方法1获取交易日期失败: {e1}")
+            
+            # 方法2：尝试原始接口（如果可用）
+            try:
+                trade_dates = ak.tool_trade_date_hist_sina()
+            except Exception as e2:
+                logger.warning(f"原始交易日历接口失败: {e2}")
+                trade_dates = None
+            
             if trade_dates is not None and not trade_dates.empty:
                 trade_dates['trade_date'] = pd.to_datetime(trade_dates['trade_date']).dt.date
                 recent_dates = trade_dates['trade_date'].tail(days).tolist()
@@ -77,18 +98,9 @@ class ZhangTingAnalyzer:
                 self._set_cache(cache_key, recent_dates)
                 return recent_dates
             else:
-                # 如果获取失败，生成近期工作日
-                today = datetime.now().date()
-                dates = []
-                current_date = today
-                
-                while len(dates) < days:
-                    # 排除周末
-                    if current_date.weekday() < 5:  # 0-4 是周一到周五
-                        dates.append(current_date)
-                    current_date -= timedelta(days=1)
-                
-                return dates
+                # 方法3：生成近期工作日作为交易日
+                logger.info("使用工作日回退方案生成交易日期")
+                return self._get_fallback_dates(days)
                 
         except Exception as e:
             logger.error(f"获取交易日期失败: {e}")
@@ -103,6 +115,33 @@ class ZhangTingAnalyzer:
                 current_date -= timedelta(days=1)
             
             return dates
+    
+    def _get_fallback_dates(self, days: int) -> List[datetime.date]:
+        """
+        生成回退交易日期（工作日）
+        
+        Args:
+            days: 需要的日期数量
+            
+        Returns:
+            工作日日期列表
+        """
+        today = datetime.now().date()
+        dates = []
+        current_date = today
+        
+        # 如果今天是周末，先回退到最近的工作日
+        while current_date.weekday() >= 5:  # 5=周六, 6=周日
+            current_date -= timedelta(days=1)
+        
+        while len(dates) < days:
+            # 只添加工作日
+            if current_date.weekday() < 5:  # 0-4 是周一到周五
+                dates.append(current_date)
+            current_date -= timedelta(days=1)
+        
+        logger.info(f"生成了{len(dates)}个工作日作为交易日期")
+        return dates
     
     def get_zhangting_data(self, trade_date: datetime.date) -> Optional[pd.DataFrame]:
         """
