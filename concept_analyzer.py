@@ -216,9 +216,12 @@ class ConceptAnalyzer:
         """获取概念板块整体表现"""
         try:
             # 获取概念板块数据
-            concept_board = ak.stock_board_concept_name_em()
-            
-            if concept_board.empty:
+            try:
+                concept_board = ak.stock_board_concept_name_em()
+                if concept_board is None or concept_board.empty:
+                    return {}
+            except Exception as e:
+                logger.warning(f"获取概念板块数据失败: {e}")
                 return {}
             
             concept_performance = {}

@@ -68,9 +68,12 @@ class MarketSentimentAnalyzer:
             limit_up_df = ak.stock_zt_pool_em(date=datetime.now().strftime('%Y%m%d'))
             limit_up_count = len(limit_up_df) if not limit_up_df.empty else 0
             
-            # 获取当日跌停数据  
-            limit_down_df = ak.stock_dt_pool_em(date=datetime.now().strftime('%Y%m%d'))
-            limit_down_count = len(limit_down_df) if not limit_down_df.empty else 0
+            # 获取当日跌停数据 - 修复API调用
+            try:
+                limit_down_df = ak.stock_zt_pool_dtgc_em(date=datetime.now().strftime('%Y%m%d'))
+                limit_down_count = len(limit_down_df) if not limit_down_df.empty else 0
+            except:
+                limit_down_count = 0
             
             # 涨跌停比例
             total_limits = limit_up_count + limit_down_count
@@ -111,7 +114,7 @@ class MarketSentimentAnalyzer:
             up_ratio = up_count / max(total_count, 1)
             
             # 计算平均涨跌幅
-            avg_change = stock_zh_a_spot_df['涨跌幅'].mean()
+            avg_change = stock_zh_a_spot_df['涨跌幅'].mean() if len(stock_zh_a_spot_df) > 0 else 0
             
             # 强势股比例（涨幅>3%）
             strong_count = len(stock_zh_a_spot_df[stock_zh_a_spot_df['涨跌幅'] > 3])

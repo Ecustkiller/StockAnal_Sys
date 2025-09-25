@@ -265,7 +265,7 @@ class RPSAnalyzer:
                 try:
                     df = ak.index_zh_a_hist(symbol=code, period="daily", 
                                           start_date=start_date, end_date=end_date)
-                    if not df.empty:
+                    if df is not None and not df.empty and '日期' in df.columns:
                         df['日期'] = pd.to_datetime(df['日期'])
                         df = df.sort_values('日期')
                         industry_data[code] = df
