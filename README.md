@@ -5,9 +5,8 @@
 ![Flask](https://img.shields.io/badge/Flask-2.0+-red.svg)
 ![AKShare](https://img.shields.io/badge/AKShare-1.16+-orange.svg)
 ![AI](https://img.shields.io/badge/AI_API-Gemini-blueviolet.svg)
-![作者](https://img.shields.io/badge/作者-Ecustkiller-ff69b4.svg)
 
-> 一个由 **Ecustkiller** 开发的专业级智能股票分析系统，基于Python和Flask构建，整合多维度股票分析能力和人工智能辅助决策功能。
+> 一个基于Python和Flask的专业级智能股票分析系统，整合多维度股票分析能力和人工智能辅助决策功能。
 
 ![系统首页截图](./images/1.png)
 
@@ -112,7 +111,7 @@
 
 1. **克隆代码库**
 ```bash
-git clone git@github.com:Ecustkiller/-.git
+git clone https://github.com/LargeCupPanda/StockAnal_Sys.git
 cd StockAnal_Sys
 ```
 
@@ -274,12 +273,6 @@ self.params = {
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 打开 Pull Request
 
-## 👤 作者
-
-**Ecustkiller**
-- GitHub: [@Ecustkiller](https://github.com/Ecustkiller)
-- 项目: [智能股票分析系统](https://github.com/Ecustkiller/StockAnal_Sys)
-
 ## 🙏 致谢
 
 感谢以下开源项目的支持：
@@ -295,7 +288,5 @@ self.params = {
 ---
 
 <div align="center">
-  <sub>Built with ❤️ by <a href="https://github.com/Ecustkiller">Ecustkiller</a></sub>
-  <br/>
   ⭐ 如果这个项目对您有帮助，请给它一个Star！
 </div>
