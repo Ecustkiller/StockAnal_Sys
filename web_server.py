@@ -34,9 +34,6 @@ from stock_qa import StockQA
 from risk_monitor import RiskMonitor
 from index_industry_analyzer import IndexIndustryAnalyzer
 from news_fetcher import news_fetcher, start_news_scheduler
-from market_sentiment_analyzer import market_sentiment_analyzer
-from rps_analyzer import rps_analyzer
-from concept_analyzer import concept_analyzer
 
 # 加载环境变量
 load_dotenv()
@@ -541,21 +538,6 @@ def capital_flow():
 @app.route('/scenario_predict')
 def scenario_predict():
     return render_template('scenario_predict.html')
-
-@app.route('/market_sentiment')
-def market_sentiment():
-    """市场情绪分析页面"""
-    return render_template('market_sentiment.html')
-
-@app.route('/rps_analysis')
-def rps_analysis():
-    """RPS相对强度分析页面"""
-    return render_template('rps_analysis.html')
-
-@app.route('/concept_analysis')
-def concept_analysis():
-    """概念板块分析页面"""
-    return render_template('concept_analysis.html')
 
 
 # 风险监控页面
@@ -1682,139 +1664,6 @@ def get_latest_news():
         return jsonify({'success': True, 'news': news_data})
     except Exception as e:
         app.logger.error(f"获取最新新闻数据时出错: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-# ============= 新增高优先级功能API路由 =============
-
-@app.route('/api/market_sentiment', methods=['GET'])
-def get_market_sentiment():
-    """获取市场情绪分析"""
-    try:
-        sentiment_data = market_sentiment_analyzer.get_market_sentiment()
-        return custom_jsonify({
-            'success': True,
-            'data': sentiment_data
-        })
-    except Exception as e:
-        app.logger.error(f"获取市场情绪数据失败: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/market_sentiment/history', methods=['GET'])
-def get_sentiment_history():
-    """获取市场情绪历史数据"""
-    try:
-        days = int(request.args.get('days', 30))
-        history_data = market_sentiment_analyzer.get_sentiment_history(days)
-        return custom_jsonify({
-            'success': True,
-            'data': history_data
-        })
-    except Exception as e:
-        app.logger.error(f"获取情绪历史数据失败: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/rps_analysis', methods=['POST'])
-def analyze_rps():
-    """RPS相对强度分析"""
-    try:
-        data = request.get_json()
-        stock_codes = data.get('stock_codes', [])
-        periods = data.get('periods', [5, 10, 20, 60])
-        
-        if not stock_codes:
-            return jsonify({'success': False, 'error': '请提供股票代码列表'}), 400
-            
-        rps_results = rps_analyzer.calculate_stock_rps(stock_codes, periods)
-        
-        return custom_jsonify({
-            'success': True,
-            'data': rps_results
-        })
-    except Exception as e:
-        app.logger.error(f"RPS分析失败: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/rps_industry', methods=['GET'])
-def get_industry_rps():
-    """获取行业RPS分析"""
-    try:
-        periods_str = request.args.get('periods', '5,10,20,60')
-        periods = [int(p) for p in periods_str.split(',')]
-        
-        industry_rps = rps_analyzer.calculate_industry_rps(periods)
-        
-        return custom_jsonify({
-            'success': True,
-            'data': industry_rps
-        })
-    except Exception as e:
-        app.logger.error(f"获取行业RPS失败: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/rps_ranking', methods=['POST'])
-def get_rps_ranking():
-    """获取RPS排名"""
-    try:
-        data = request.get_json()
-        rps_data = data.get('rps_data', {})
-        top_n = data.get('top_n', 50)
-        
-        ranking = rps_analyzer.get_rps_ranking(rps_data, top_n)
-        
-        return custom_jsonify({
-            'success': True,
-            'data': ranking
-        })
-    except Exception as e:
-        app.logger.error(f"获取RPS排名失败: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/concept_analysis', methods=['GET'])
-def get_concept_analysis():
-    """获取概念板块分析"""
-    try:
-        date = request.args.get('date', None)
-        analysis_data = concept_analyzer.analyze_daily_concepts(date)
-        
-        return custom_jsonify({
-            'success': True,
-            'data': analysis_data
-        })
-    except Exception as e:
-        app.logger.error(f"概念分析失败: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/concept_history', methods=['GET'])
-def get_concept_history():
-    """获取概念板块历史趋势"""
-    try:
-        days = int(request.args.get('days', 30))
-        history_data = concept_analyzer.get_concept_history(days)
-        
-        return custom_jsonify({
-            'success': True,
-            'data': history_data
-        })
-    except Exception as e:
-        app.logger.error(f"获取概念历史失败: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/concept_stocks', methods=['GET'])
-def get_concept_stocks():
-    """获取概念成分股"""
-    try:
-        concept_name = request.args.get('concept_name', '')
-        if not concept_name:
-            return jsonify({'success': False, 'error': '请提供概念名称'}), 400
-            
-        stocks_data = concept_analyzer.get_concept_stocks(concept_name)
-        
-        return custom_jsonify({
-            'success': True,
-            'data': stocks_data
-        })
-    except Exception as e:
-        app.logger.error(f"获取概念成分股失败: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # 在应用启动时启动清理线程（保持原有代码不变）

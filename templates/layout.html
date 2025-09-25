@@ -375,23 +375,6 @@
         text-align: center;
     }
 
-    /* 导航分隔符样式 */
-    .nav-separator {
-        margin: 15px 0 10px 0;
-        border-bottom: 1px solid #eee;
-    }
-
-    .nav-separator span {
-        background: linear-gradient(45deg, #007bff, #28a745);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: bold;
-        font-size: 13px;
-        padding: 5px 15px;
-        display: block;
-    }
-
     /* 中间新闻区域样式 */
     .portal-news {
         grid-area: news;
@@ -768,17 +751,6 @@
                     <!-- 新增菜单项 - 风险监控 -->
                     <li class="nav-item">
                         <a class="nav-link {% if request.path.startswith('/risk') %}active{% endif %}" href="/risk_monitor"><i class="fas fa-exclamation-triangle"></i> 风险监控</a>
-                    </li>
-                    <!-- 新增高优先级功能菜单 -->
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.path in ['/market_sentiment', '/rps_analysis', '/concept_analysis'] %}active{% endif %}" href="#" id="advancedDropdown" role="button" data-bs-toggle="dropdown">
-                            <i class="fas fa-rocket"></i> 高级分析
-                        </a>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item {% if request.path == '/market_sentiment' %}active{% endif %}" href="/market_sentiment"><i class="fas fa-heart-pulse me-2"></i>市场情绪</a></li>
-                            <li><a class="dropdown-item {% if request.path == '/rps_analysis' %}active{% endif %}" href="/rps_analysis"><i class="fas fa-ranking-star me-2"></i>RPS分析</a></li>
-                            <li><a class="dropdown-item {% if request.path == '/concept_analysis' %}active{% endif %}" href="/concept_analysis"><i class="fas fa-tags me-2"></i>概念分析</a></li>
-                        </ul>
                     </li>
                     <!-- 新增菜单项 - 智能问答 -->
                     <li class="nav-item">
