@@ -12,6 +12,7 @@ import os
 import json
 import traceback
 import openai
+import requests
 from urllib.parse import urlparse
 from datetime import datetime
 
@@ -19,10 +20,13 @@ from datetime import datetime
 class StockQA:
     def __init__(self, analyzer, openai_api_key=None, openai_model=None):
         self.analyzer = analyzer
+        self.ai_backend = os.getenv('AI_BACKEND', 'openai')  # 支持 'openai' 或 'ollama'
         self.openai_api_key = os.getenv('OPENAI_API_KEY', openai_api_key)
         self.openai_api_url = os.getenv('OPENAI_API_URL', 'https://api.openai.com/v1')
         self.openai_model = os.getenv('OPENAI_API_MODEL', openai_model or 'gpt-4o')
         self.function_call_model = os.getenv('FUNCTION_CALL_MODEL', openai_model or 'gpt-4o')
+        self.ollama_url = os.getenv('OLLAMA_URL', 'http://localhost:11434')
+        self.ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2:7b')
         self.serp_api_key = os.getenv('SERP_API_KEY')
         self.tavily_api_key = os.getenv('TAVILY_API_KEY')
         self.max_qa_rounds = int(os.getenv('MAX_QA', '10'))  # 默认保留10轮对话
@@ -33,6 +37,66 @@ class StockQA:
         # 设置日志记录
         import logging
         self.logger = logging.getLogger(__name__)
+
+    def _call_ollama(self, messages, tools=None, temperature=0.7):
+        """使用Ollama本地模型进行对话"""
+        try:
+            # 简化消息格式 - 将多轮对话合并为单个prompt
+            prompt_parts = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    prompt_parts.append(f"[系统]\n{msg['content']}\n")
+                elif msg["role"] == "user":
+                    prompt_parts.append(f"[用户]\n{msg['content']}\n")
+                elif msg["role"] == "assistant":
+                    prompt_parts.append(f"[助手]\n{msg['content']}\n")
+            
+            prompt = "\n".join(prompt_parts)
+            prompt += "[助手]\n"  # 提示模型开始回答
+            
+            # 调用Ollama API
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json={
+                    "model": self.ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": temperature,
+                        "top_k": 40,
+                        "top_p": 0.9
+                    }
+                },
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # 创建类似OpenAI的响应格式
+                class MockMessage:
+                    def __init__(self, content):
+                        self.content = content
+                        self.tool_calls = None
+                        self.role = "assistant"
+                
+                class MockChoice:
+                    def __init__(self, message):
+                        self.message = message
+                
+                class MockResponse:
+                    def __init__(self, choices):
+                        self.choices = choices
+                
+                message = MockMessage(result.get("response", ""))
+                choice = MockChoice(message)
+                return MockResponse([choice])
+            else:
+                self.logger.error(f"Ollama API调用失败: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"调用Ollama出错: {str(e)}")
+            return None
 
     def answer_question(self, stock_code, question, market_type='A', conversation_id=None, clear_history=False):
         """
@@ -49,11 +113,23 @@ class StockQA:
             包含回答和元数据的字典
         """
         try:
-            # 重新获取API密钥，确保使用最新的环境变量
-            current_api_key = os.getenv('OPENAI_API_KEY', self.openai_api_key)
-            if not current_api_key:
-                return {"error": "未配置API密钥，无法使用智能问答功能"}
-            self.openai_api_key = current_api_key
+            # 检查AI后端配置
+            if self.ai_backend == 'openai':
+                # 重新获取API密钥，确保使用最新的环境变量
+                current_api_key = os.getenv('OPENAI_API_KEY', self.openai_api_key)
+                if not current_api_key:
+                    return {"error": "未配置OpenAI API密钥，无法使用智能问答功能"}
+                self.openai_api_key = current_api_key
+            elif self.ai_backend == 'ollama':
+                # 检查Ollama服务是否可用
+                try:
+                    test_response = requests.get(f"{self.ollama_url}/api/tags", timeout=5)
+                    if test_response.status_code != 200:
+                        return {"error": f"Ollama服务不可用，请检查服务是否启动: {self.ollama_url}"}
+                except Exception as e:
+                    return {"error": f"无法连接到Ollama服务: {str(e)}"}
+            else:
+                return {"error": f"不支持的AI后端: {self.ai_backend}"}
 
             # 处理对话ID和历史
             if conversation_id is None:
@@ -130,22 +206,30 @@ class StockQA:
             # 添加当前问题
             messages.append({"role": "user", "content": question})
             
-            # 调用AI API
-            openai.api_key = self.openai_api_key
-            openai.api_base = self.openai_api_url
+            # 调用AI API - 根据后端类型选择调用方式
+            if self.ai_backend == 'openai':
+                openai.api_key = self.openai_api_key
+                openai.api_base = self.openai_api_url
 
-            # 第一步：调用模型，让它决定是否使用工具
-            first_response = openai.ChatCompletion.create(
-                model=self.function_call_model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0.7
-            )
+                # 第一步：调用模型，让它决定是否使用工具
+                first_response = openai.ChatCompletion.create(
+                    model=self.function_call_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=0.7
+                )
+            elif self.ai_backend == 'ollama':
+                # 使用Ollama模型（暂不支持工具调用）
+                first_response = self._call_ollama(messages, tools, temperature=0.7)
+                if first_response is None:
+                    return {"error": "Ollama模型调用失败"}
+            else:
+                return {"error": f"不支持的AI后端: {self.ai_backend}"}
 
             # 获取初始响应
             assistant_message = first_response.choices[0].message
-            response_content = assistant_message.content
+            response_content = assistant_message.content if hasattr(assistant_message, 'content') else assistant_message.get('content', '')
             used_search_tool = False
             
             # 检查是否需要使用工具调用
@@ -181,11 +265,15 @@ class StockQA:
                         })
                 
                 # 第二步：让模型根据工具调用结果生成最终响应
-                second_response = openai.ChatCompletion.create(
-                    model=self.openai_model,
-                    messages=tool_messages,
-                    temperature=0.7
-                )
+                if self.ai_backend == 'openai':
+                    second_response = openai.ChatCompletion.create(
+                        model=self.openai_model,
+                        messages=tool_messages,
+                        temperature=0.7
+                    )
+                else:
+                    # Ollama暂不支持工具调用，使用原始响应
+                    second_response = first_response
                 
                 response_content = second_response.choices[0].message.content
                 assistant_message = {"role": "assistant", "content": response_content}
