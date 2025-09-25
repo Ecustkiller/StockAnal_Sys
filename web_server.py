@@ -34,7 +34,6 @@ from stock_qa import StockQA
 from risk_monitor import RiskMonitor
 from index_industry_analyzer import IndexIndustryAnalyzer
 from news_fetcher import news_fetcher, start_news_scheduler
-from zhangting_analyzer import ZhangTingAnalyzer
 
 # 加载环境变量
 load_dotenv()
@@ -101,7 +100,6 @@ stock_qa = StockQA(analyzer, os.getenv('OPENAI_API_KEY'), os.getenv('OPENAI_API_
 risk_monitor = RiskMonitor(analyzer)
 index_industry_analyzer = IndexIndustryAnalyzer(analyzer)
 industry_analyzer = IndustryAnalyzer()
-zhangting_analyzer = ZhangTingAnalyzer()
 
 start_news_scheduler()
 
@@ -558,18 +556,6 @@ def qa_page():
 @app.route('/industry_analysis')
 def industry_analysis():
     return render_template('industry_analysis.html')
-
-
-# 涨停连板分析页面
-@app.route('/zhangting_analysis')
-def zhangting_analysis():
-    return render_template('zhangting_analysis.html')
-
-
-# 涨停分析测试页面
-@app.route('/test_zhangting')
-def test_zhangting():
-    return render_template('test_zhangting.html')
 
 
 def make_cache_key_with_stock():
@@ -1679,212 +1665,6 @@ def get_latest_news():
     except Exception as e:
         app.logger.error(f"获取最新新闻数据时出错: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ====== 涨停连板分析API路由 ======
-
-@app.route('/api/zhangting/trading_dates', methods=['GET'])
-def get_zhangting_trading_dates():
-    """获取交易日期列表"""
-    try:
-        days = int(request.args.get('days', 10))
-        dates = zhangting_analyzer.get_trading_dates(days)
-        # 转换为字符串格式
-        date_strings = [date.strftime('%Y-%m-%d') for date in dates]
-        return jsonify(date_strings)
-    except Exception as e:
-        app.logger.error(f"获取交易日期时出错: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/zhangting/data', methods=['GET'])
-def get_zhangting_data():
-    """获取涨停数据"""
-    try:
-        date_str = request.args.get('date')
-        if not date_str:
-            return jsonify({'error': '请提供日期参数'}), 400
-        
-        # 解析日期
-        trade_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        
-        # 获取涨停数据
-        df = zhangting_analyzer.get_zhangting_data(trade_date)
-        
-        if df is not None and not df.empty:
-            # 转换为字典列表
-            data = df.to_dict('records')
-            return jsonify(data)
-        else:
-            return jsonify([])
-            
-    except ValueError as e:
-        return jsonify({'error': '日期格式错误，请使用YYYY-MM-DD格式'}), 400
-    except Exception as e:
-        app.logger.error(f"获取涨停数据时出错: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/zhangting/statistics', methods=['GET'])
-def get_zhangting_statistics():
-    """获取涨停统计信息"""
-    try:
-        date_str = request.args.get('date')
-        if not date_str:
-            return jsonify({'error': '请提供日期参数'}), 400
-        
-        # 解析日期
-        trade_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        
-        # 获取涨停数据
-        df = zhangting_analyzer.get_zhangting_data(trade_date)
-        
-        if df is not None and not df.empty:
-            # 获取统计信息
-            stats = zhangting_analyzer.get_lianban_statistics(df)
-            return jsonify(stats)
-        else:
-            return jsonify({})
-            
-    except ValueError as e:
-        return jsonify({'error': '日期格式错误，请使用YYYY-MM-DD格式'}), 400
-    except Exception as e:
-        app.logger.error(f"获取涨停统计时出错: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/zhangting/concepts', methods=['GET'])
-def get_zhangting_concepts():
-    """获取涨停概念统计"""
-    try:
-        date_str = request.args.get('date')
-        if not date_str:
-            return jsonify({'error': '请提供日期参数'}), 400
-        
-        # 解析日期
-        trade_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        
-        # 获取涨停数据
-        df = zhangting_analyzer.get_zhangting_data(trade_date)
-        
-        if df is not None and not df.empty:
-            # 获取概念统计
-            concepts = zhangting_analyzer.get_concept_statistics(df)
-            if not concepts.empty:
-                return jsonify(concepts.to_dict('records'))
-        
-        return jsonify([])
-            
-    except ValueError as e:
-        return jsonify({'error': '日期格式错误，请使用YYYY-MM-DD格式'}), 400
-    except Exception as e:
-        app.logger.error(f"获取概念统计时出错: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/zhangting/sentiment', methods=['GET'])
-def get_zhangting_sentiment():
-    """获取市场情绪分析"""
-    try:
-        date_str = request.args.get('date')
-        if not date_str:
-            return jsonify({'error': '请提供日期参数'}), 400
-        
-        # 解析日期
-        trade_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        
-        # 获取涨停数据
-        df = zhangting_analyzer.get_zhangting_data(trade_date)
-        
-        if df is not None and not df.empty:
-            # 获取情绪分析
-            sentiment = zhangting_analyzer.get_market_sentiment(df)
-            return jsonify(sentiment)
-        else:
-            return jsonify({})
-            
-    except ValueError as e:
-        return jsonify({'error': '日期格式错误，请使用YYYY-MM-DD格式'}), 400
-    except Exception as e:
-        app.logger.error(f"获取市场情绪时出错: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/zhangting/promotion_rate', methods=['GET'])
-def get_zhangting_promotion_rate():
-    """获取连板晋级率"""
-    try:
-        date_str = request.args.get('date')
-        if not date_str:
-            return jsonify({'error': '请提供日期参数'}), 400
-        
-        # 解析日期
-        current_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        
-        # 获取交易日期列表，找到前一个交易日
-        trade_dates = zhangting_analyzer.get_trading_dates(10)
-        
-        current_idx = None
-        for i, date in enumerate(trade_dates):
-            if date == current_date:
-                current_idx = i
-                break
-        
-        if current_idx is None or current_idx >= len(trade_dates) - 1:
-            return jsonify([])  # 没有前一个交易日数据
-        
-        # 获取前一个交易日
-        previous_date = trade_dates[current_idx + 1]
-        
-        # 获取两日数据
-        current_df = zhangting_analyzer.get_zhangting_data(current_date)
-        previous_df = zhangting_analyzer.get_zhangting_data(previous_date)
-        
-        if current_df is not None and previous_df is not None:
-            # 计算晋级率
-            promotion_rate = zhangting_analyzer.calculate_promotion_rate(current_df, previous_df)
-            if not promotion_rate.empty:
-                return jsonify(promotion_rate.to_dict('records'))
-        
-        return jsonify([])
-            
-    except ValueError as e:
-        return jsonify({'error': '日期格式错误，请使用YYYY-MM-DD格式'}), 400
-    except Exception as e:
-        app.logger.error(f"获取连板晋级率时出错: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/zhangting/leaders', methods=['GET'])
-def get_zhangting_leaders():
-    """获取龙头股票"""
-    try:
-        date_str = request.args.get('date')
-        top_n = int(request.args.get('top_n', 10))
-        
-        if not date_str:
-            return jsonify({'error': '请提供日期参数'}), 400
-        
-        # 解析日期
-        trade_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        
-        # 获取涨停数据
-        df = zhangting_analyzer.get_zhangting_data(trade_date)
-        
-        if df is not None and not df.empty:
-            # 获取龙头股票
-            leaders = zhangting_analyzer.get_leader_stocks(df, top_n)
-            if not leaders.empty:
-                return jsonify(leaders.to_dict('records'))
-        
-        return jsonify([])
-            
-    except ValueError as e:
-        return jsonify({'error': '日期格式错误，请使用YYYY-MM-DD格式'}), 400
-    except Exception as e:
-        app.logger.error(f"获取龙头股票时出错: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
 
 # 在应用启动时启动清理线程（保持原有代码不变）
 cleaner_thread = threading.Thread(target=run_task_cleaner)
