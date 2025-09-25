@@ -477,11 +477,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 加载交易日期列表
 async function loadTradingDates() {
+    console.log('开始加载交易日期...');
     try {
         const response = await fetch('/api/zhangting/trading_dates');
+        console.log('API响应状态:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`API请求失败: ${response.status}`);
+        }
+        
         const dates = await response.json();
+        console.log('获取到的日期数据:', dates);
         
         const selectElement = document.getElementById('tradeDateSelect');
+        if (!selectElement) {
+            throw new Error('找不到日期选择器元素');
+        }
+        
         selectElement.innerHTML = '<option value="">请选择日期...</option>';
         
         dates.forEach((date, index) => {
@@ -495,20 +507,27 @@ async function loadTradingDates() {
             selectElement.appendChild(option);
         });
         
+        console.log(`成功加载${dates.length}个交易日期`);
+        
         // 自动加载最新日期的数据
         if (dates.length > 0) {
             loadZhangTingData();
         }
     } catch (error) {
         console.error('加载交易日期失败:', error);
-        showError('加载交易日期失败，请刷新页面重试');
+        showError('加载交易日期失败，请刷新页面重试: ' + error.message);
     }
 }
 
 // 加载涨停数据
 async function loadZhangTingData() {
     const selectedDate = document.getElementById('tradeDateSelect').value;
-    if (!selectedDate) return;
+    console.log('开始加载涨停数据，选中日期:', selectedDate);
+    
+    if (!selectedDate) {
+        console.log('未选择日期，跳过数据加载');
+        return;
+    }
     
     currentTradeDate = selectedDate;
     showLoading(true);
@@ -517,6 +536,7 @@ async function loadZhangTingData() {
     hideMainContent();
     
     try {
+        console.log('开始并行请求数据...');
         // 并行加载所有数据
         const [dataResponse, statsResponse, conceptResponse, sentimentResponse] = await Promise.all([
             fetch(`/api/zhangting/data?date=${selectedDate}`),
@@ -525,12 +545,22 @@ async function loadZhangTingData() {
             fetch(`/api/zhangting/sentiment?date=${selectedDate}`)
         ]);
         
+        console.log('API响应状态:', {
+            data: dataResponse.status,
+            stats: statsResponse.status,
+            concepts: conceptResponse.status,
+            sentiment: sentimentResponse.status
+        });
+        
         const data = await dataResponse.json();
         const stats = await statsResponse.json();
         const concepts = await conceptResponse.json();
         const sentiment = await sentimentResponse.json();
         
+        console.log('解析后的数据:', { data, stats, concepts, sentiment });
+        
         if (data && data.length > 0) {
+            console.log(`成功获取${data.length}条涨停数据`);
             zhangTingData = data;
             updateOverviewMetrics(stats, sentiment);
             updateLeaderStocksTable(data);
@@ -539,11 +569,12 @@ async function loadZhangTingData() {
             loadPromotionRateData();
             showMainContent();
         } else {
+            console.log('没有获取到涨停数据');
             showNoData();
         }
     } catch (error) {
         console.error('加载涨停数据失败:', error);
-        showError('加载涨停数据失败，请稍后重试');
+        showError('加载涨停数据失败，请稍后重试: ' + error.message);
     } finally {
         showLoading(false);
     }
