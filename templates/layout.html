@@ -623,33 +623,7 @@
         color: #8898aa;
     }
 
-    .ticker-news {
-        height: 40px;
-        overflow: hidden;
-        position: relative;
-        background-color: #f8f9fa;
-    }
 
-    .ticker-wrapper {
-        display: flex;
-        position: absolute;
-        white-space: nowrap;
-    }
-
-    .ticker-item {
-        padding: 0 30px;
-        line-height: 40px;
-        color: #333;
-    }
-
-    @keyframes ticker {
-        0% {
-            transform: translate3d(0, 0, 0);
-        }
-        100% {
-            transform: translate3d(-50%, 0, 0);
-        }
-    }
 
     /* 响应式调整 */
     @media (max-width: 1200px) {
@@ -721,40 +695,28 @@
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <!-- 在layout.html的导航栏部分修改 -->
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
                         <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/"><i class="fas fa-home"></i> 主页</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.path == '/dashboard' %}active{% endif %}" href="/dashboard"><i class="fas fa-chart-line"></i> 智能仪表盘</a>
+                        <a class="nav-link {% if request.path == '/dashboard' %}active{% endif %}" href="/dashboard"><i class="fas fa-chart-line"></i> 仪表盘</a>
                     </li>
-                    <!-- 新增菜单项 - 基本面分析 -->
                     <li class="nav-item">
-                        <a class="nav-link {% if request.path.startswith('/fundamental') %}active{% endif %}" href="/fundamental"><i class="fas fa-file-invoice-dollar"></i> 基本面分析</a>
+                        <a class="nav-link {% if request.path.startswith('/fundamental') %}active{% endif %}" href="/fundamental"><i class="fas fa-file-invoice-dollar"></i> 基本面</a>
                     </li>
-                    <!-- 新增菜单项 - 资金流向 -->
                     <li class="nav-item">
                         <a class="nav-link {% if request.path.startswith('/capital_flow') %}active{% endif %}" href="/capital_flow"><i class="fas fa-money-bill-wave"></i> 资金流向</a>
                     </li>
-                    <!-- 新增菜单项 - 情景预测 -->
                     <li class="nav-item">
-                        <a class="nav-link {% if request.path.startswith('/scenario') %}active{% endif %}" href="/scenario_predict"><i class="fas fa-lightbulb"></i> 情景预测</a>
+                        <a class="nav-link {% if request.path.startswith('/claw') %}active{% endif %}" href="/claw_score"><i class="fas fa-star"></i> 量化评分</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.path == '/market_scan' %}active{% endif %}" href="/market_scan"><i class="fas fa-search"></i> 市场扫描</a>
+                        <a class="nav-link {% if request.path == '/watchlist' %}active{% endif %}" href="/watchlist"><i class="fas fa-bookmark"></i> 自选股</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.path == '/portfolio' %}active{% endif %}" href="/portfolio"><i class="fas fa-briefcase"></i> 投资组合</a>
-                    </li>
-                    <!-- 新增菜单项 - 风险监控 -->
                     <li class="nav-item">
                         <a class="nav-link {% if request.path.startswith('/risk') %}active{% endif %}" href="/risk_monitor"><i class="fas fa-exclamation-triangle"></i> 风险监控</a>
-                    </li>
-                    <!-- 新增菜单项 - 智能问答 -->
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.path == '/qa' %}active{% endif %}" href="/qa"><i class="fas fa-question-circle"></i> 智能问答</a>
                     </li>
                 </ul>
                 <div class="d-flex">

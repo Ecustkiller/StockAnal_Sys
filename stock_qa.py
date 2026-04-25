@@ -26,7 +26,7 @@ class StockQA:
         self.openai_model = os.getenv('OPENAI_API_MODEL', openai_model or 'gpt-4o')
         self.function_call_model = os.getenv('FUNCTION_CALL_MODEL', openai_model or 'gpt-4o')
         self.ollama_url = os.getenv('OLLAMA_URL', 'http://localhost:11434')
-        self.ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2:7b')
+        self.ollama_model = os.getenv('OLLAMA_MODEL', 'qwen2.5:14b')
         self.serp_api_key = os.getenv('SERP_API_KEY')
         self.tavily_api_key = os.getenv('TAVILY_API_KEY')
         self.max_qa_rounds = int(os.getenv('MAX_QA', '10'))  # 默认保留10轮对话

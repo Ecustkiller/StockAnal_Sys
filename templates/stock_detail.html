@@ -371,12 +371,54 @@
         </div>
     </div>
 
+    <!-- 快速分析报告区域 - 纯代码计算，秒级返回 -->
+    <div class="row g-3 mb-3" id="quick-report-section" style="display:none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-bolt text-warning"></i> 智能分析报告</h5>
+                    <div>
+                        <span id="quick-report-time" class="badge bg-success"></span>
+                        <span id="quick-report-rating" class="badge" style="font-size:1rem;"></span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- 综合评级概览 -->
+                    <div class="row mb-3" id="quick-rating-overview"></div>
+                    
+                    <!-- 8维度评分条 -->
+                    <div class="row mb-3" id="quick-dimension-bars"></div>
+                    
+                    <!-- 多维度诊断Tab -->
+                    <ul class="nav nav-tabs" id="diagnosisTabs" role="tablist">
+                        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-tech-diag">技术面</a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-fund-diag">基本面</a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-cap-diag">资金面</a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-env-diag">市场环境</a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-risk-diag">风险评估</a></li>
+<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-advice-diag">操作建议</a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-pattern-diag">技术形态</a></li>
+                    </ul>
+                    <div class="tab-content p-3" id="diagnosisTabContent">
+                        <div class="tab-pane fade show active" id="tab-tech-diag"></div>
+                        <div class="tab-pane fade" id="tab-fund-diag"></div>
+                        <div class="tab-pane fade" id="tab-cap-diag"></div>
+                        <div class="tab-pane fade" id="tab-env-diag"></div>
+                        <div class="tab-pane fade" id="tab-risk-diag"></div>
+<div class="tab-pane fade" id="tab-advice-diag"></div>
+                        <div class="tab-pane fade" id="tab-pattern-diag"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- AI分析区域 - 始终显示，但异步加载内容 -->
     <div class="row g-3 mb-3">
         <div class="col-12">
             <div class="card">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">AI分析报告</h5>
+                    <h5 class="mb-0">AI深度分析</h5>
                     <div>
                         <span id="ai-analysis-status" class="badge bg-info">准备分析...</span>
                     </div>
@@ -595,8 +637,11 @@
             // 获取或计算支撑压力位
             calculateAndRenderSupportResistance(latestData);
             
-            // 计算并渲染技术评分
+            // 计算并渲染技术评分（先用前端简单评分，快速分析完成后替换）
             calculateAndRenderScore(latestData);
+            
+            // 调用后端快速分析API获取8维度评分和结构化报告
+            loadQuickAnalysis();
             
             // 隐藏加载状态
             hideSystemLoadingState();
@@ -930,17 +975,37 @@
         chart.render();
     }
     
-    // 渲染雷达图
-    function renderRadarChart(rsiScore, trendScore, macdScore, volumeScore) {
-        $('#radar-chart-container').html('<div id="radar-chart" style="height: 200px;"></div>');
+    // 渲染雷达图（8维度增强版）
+    function renderRadarChart(rsiScore, trendScore, macdScore, volumeScore, extraScores) {
+        $('#radar-chart-container').html('<div id="radar-chart" style="height: 250px;"></div>');
+        
+        // 如果有8维度数据，使用8维度雷达图
+        let categories, data;
+        if (extraScores && extraScores.fundamental !== undefined) {
+            const maxScores = extraScores.max_scores || {trend:15,technical:15,volume:10,momentum:10,fundamental:20,capital_flow:15,sentiment:10,industry:5};
+            categories = ['趋势', '技术指标', '成交量', '动量', '基本面', '资金流', '市场情绪', '行业强度'];
+            data = [
+                (extraScores.trend || 0) / maxScores.trend * 10,
+                (extraScores.technical || 0) / maxScores.technical * 10,
+                (extraScores.volume || 0) / maxScores.volume * 10,
+                (extraScores.momentum || 0) / maxScores.momentum * 10,
+                (extraScores.fundamental || 0) / maxScores.fundamental * 10,
+                (extraScores.capital_flow || 0) / maxScores.capital_flow * 10,
+                (extraScores.sentiment || 0) / maxScores.sentiment * 10,
+                (extraScores.industry || 0) / maxScores.industry * 10
+            ];
+        } else {
+            categories = ['RSI', '趋势', 'MACD', '成交量'];
+            data = [rsiScore, trendScore, macdScore, volumeScore];
+        }
         
         const options = {
             series: [{
                 name: '评分',
-                data: [rsiScore, trendScore, macdScore, volumeScore]
+                data: data
             }],
             chart: {
-                height: 200,
+                height: 250,
                 type: 'radar',
                 toolbar: {
                     show: false
@@ -962,7 +1027,7 @@
                 size: 3
             },
             xaxis: {
-                categories: ['RSI', '趋势', 'MACD', '成交量']
+                categories: categories
             },
             yaxis: {
                 show: false,
@@ -1377,6 +1442,286 @@
     }
     
     // 启动AI分析
+    // ========== 快速分析报告（后端8维度评分 + 结构化报告）==========
+    function loadQuickAnalysis() {
+        $.ajax({
+            url: '/api/quick_analysis',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ stock_code: stockCode, market_type: marketType }),
+            timeout: 15000,
+            success: function(response) {
+                if (response.result) {
+                    renderQuickReport(response.result);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.warn('快速分析加载失败:', error);
+            }
+        });
+    }
+
+    function renderQuickReport(result) {
+        const report = result.structured_report || {};
+        const scores = result.comprehensive_scores || {};
+        const rating = report.overall_rating || {};
+
+        // 显示快速报告区域
+        $('#quick-report-section').fadeIn(300);
+
+        // 顶部标签
+        $('#quick-report-time').text(`${result.elapsed_seconds || '?'}秒完成`);
+        if (rating.rating) {
+            $('#quick-report-rating').text(`${rating.rating} ${rating.rating_text || ''}`)
+                .css('background-color', rating.rating_color || '#3498db').css('color', '#fff');
+        }
+
+        // 更新评分环形图（用后端8维度总分替换前端简单评分）
+        const total = scores.total || 0;
+        $('#score-container').html(`
+            <div class="score-indicator">
+                <div id="score-chart"></div>
+                <div class="score-display">
+                    <p class="score-value">${total}</p>
+                    <p class="score-label">综合评分</p>
+                </div>
+            </div>
+        `);
+        renderScoreChart(total);
+        const scoreClass = getScoreColorClass(total);
+        const scoreText = getScoreDescription(total);
+        $('#recommendation-container').html(`<div class="badge badge-pill ${scoreClass} px-3 py-2">${scoreText}</div>`);
+
+        // 更新雷达图为8维度
+        renderRadarChart(0, 0, 0, 0, scores);
+
+        // 更新股票名称和行业（如果快速分析返回了）
+        if (result.basic_info) {
+            const sn = result.basic_info.stock_name;
+            const ind = result.basic_info.industry;
+            if (sn && sn !== '未知') {
+                $('#stock-title').html(`${sn} <span class="text-muted">${stockCode}</span>`);
+                $('#ai-analysis-stock-name').text(sn);
+            }
+            if (ind && ind !== '未知') {
+                const dateText = $('#stock-info').text().split(' | ').pop();
+                $('#stock-info').text(`${ind} | ${dateText}`);
+            }
+        }
+
+        // ===== 综合评级概览 =====
+        let overviewHtml = `
+            <div class="col-md-3 text-center">
+                <div style="font-size:2.5rem;font-weight:700;color:${rating.rating_color || '#333'}">${rating.rating || 'N/A'}</div>
+                <div class="text-muted">${rating.rating_text || ''}</div>
+                <div class="mt-1"><strong>${total}</strong>/100</div>
+            </div>
+            <div class="col-md-4">
+                <h6 class="text-success"><i class="fas fa-thumbs-up"></i> 优势维度</h6>
+                <ul class="list-unstyled mb-0">`;
+        (rating.strengths || []).forEach(s => { overviewHtml += `<li><span class="badge bg-success-subtle text-success me-1">✓</span>${s}</li>`; });
+        if (!(rating.strengths || []).length) overviewHtml += '<li class="text-muted">暂无明显优势</li>';
+        overviewHtml += `</ul></div><div class="col-md-4">
+                <h6 class="text-danger"><i class="fas fa-exclamation-triangle"></i> 薄弱维度</h6>
+                <ul class="list-unstyled mb-0">`;
+        (rating.weaknesses || []).forEach(w => { overviewHtml += `<li><span class="badge bg-danger-subtle text-danger me-1">✗</span>${w}</li>`; });
+        if (!(rating.weaknesses || []).length) overviewHtml += '<li class="text-muted">暂无明显短板</li>';
+        overviewHtml += '</ul></div>';
+        $('#quick-rating-overview').html(overviewHtml);
+
+        // ===== 8维度评分条 =====
+        const dimNames = {trend:'趋势',technical:'技术指标',volume:'成交量',momentum:'动量',fundamental:'基本面',capital_flow:'资金流',sentiment:'市场情绪',industry:'行业强度'};
+        const dimColors = {trend:'#4e73df',technical:'#1cc88a',volume:'#36b9cc',momentum:'#f6c23e',fundamental:'#e74c3c',capital_flow:'#6f42c1',sentiment:'#fd7e14',industry:'#20c997'};
+        const maxScores = scores.max_scores || {trend:15,technical:15,volume:10,momentum:10,fundamental:20,capital_flow:15,sentiment:10,industry:5};
+        let barsHtml = '';
+        for (const [dim, name] of Object.entries(dimNames)) {
+            const val = scores[dim] || 0;
+            const max = maxScores[dim] || 1;
+            const pct = Math.round(val / max * 100);
+            const color = dimColors[dim] || '#6c757d';
+            barsHtml += `
+                <div class="col-md-3 col-6 mb-2">
+                    <div class="d-flex justify-content-between small">
+                        <span>${name}</span><span class="fw-bold">${val}/${max}</span>
+                    </div>
+                    <div class="progress" style="height:8px;">
+                        <div class="progress-bar" style="width:${pct}%;background:${color};" role="progressbar"></div>
+                    </div>
+                </div>`;
+        }
+        $('#quick-dimension-bars').html(barsHtml);
+
+        // ===== 多维度诊断Tab内容 =====
+        renderDiagnosisTab('#tab-tech-diag', report.technical_diagnosis, '技术面');
+        renderDiagnosisTab('#tab-fund-diag', report.fundamental_diagnosis, '基本面');
+        renderDiagnosisTab('#tab-cap-diag', report.capital_flow_diagnosis, '资金面');
+        renderDiagnosisTab('#tab-env-diag', report.market_environment, '市场环境');
+        renderRiskTab('#tab-risk-diag', report.risk_assessment);
+        renderAdviceTab('#tab-advice-diag', report.trading_advice);
+
+        // 渲染形态识别结果
+        const patternData = result.pattern_analysis || {};
+        renderPatternTab('#tab-pattern-diag', patternData);
+    }
+
+    function renderDiagnosisTab(selector, diag, title) {
+        if (!diag) { $(selector).html('<p class="text-muted">数据不可用</p>'); return; }
+        let html = '';
+        // 结论
+        if (diag.conclusion) {
+            html += `<div class="alert alert-info py-2 mb-2"><i class="fas fa-info-circle"></i> <strong>结论：</strong>${diag.conclusion}</div>`;
+        }
+        // 诊断要点
+        if (diag.diagnosis_points && diag.diagnosis_points.length) {
+            html += '<ul class="list-group list-group-flush mb-2">';
+            diag.diagnosis_points.forEach(p => { html += `<li class="list-group-item py-1 px-2 small">${p}</li>`; });
+            html += '</ul>';
+        }
+        // 信号
+        if (diag.signals && diag.signals.length) {
+            html += '<div class="mt-2">';
+            diag.signals.forEach(s => {
+                const cls = s.type === 'bullish' ? 'success' : 'danger';
+                const icon = s.type === 'bullish' ? 'arrow-up' : 'arrow-down';
+                html += `<span class="badge bg-${cls} me-1 mb-1"><i class="fas fa-${icon}"></i> ${s.text}</span>`;
+            });
+            html += '</div>';
+        }
+        // 亮点和风险
+        if (diag.highlights && diag.highlights.length) {
+            html += '<div class="mt-2"><strong class="text-success">亮点：</strong>';
+            diag.highlights.forEach(h => { html += `<span class="badge bg-success-subtle text-success me-1">${h}</span>`; });
+            html += '</div>';
+        }
+        if (diag.risks && diag.risks.length) {
+            html += '<div class="mt-1"><strong class="text-danger">风险：</strong>';
+            diag.risks.forEach(r => { html += `<span class="badge bg-danger-subtle text-danger me-1">${r}</span>`; });
+            html += '</div>';
+        }
+        $(selector).html(html);
+    }
+
+    function renderRiskTab(selector, risk) {
+        if (!risk) { $(selector).html('<p class="text-muted">数据不可用</p>'); return; }
+        const levelColors = {'极高':'#dc3545','高':'#e74c3c','中高':'#fd7e14','中':'#f6c23e','低':'#28a745','极低':'#20c997'};
+        let html = `<div class="alert py-2 mb-2" style="background:${levelColors[risk.risk_level] || '#6c757d'}22;border-left:4px solid ${levelColors[risk.risk_level] || '#6c757d'}">
+            <strong>风险等级：<span style="color:${levelColors[risk.risk_level] || '#6c757d'}">${risk.risk_level}</span></strong>
+            （共${risk.risk_count || 0}个风险点，${risk.high_risk_count || 0}个高风险）
+        </div>`;
+        if (risk.risks && risk.risks.length) {
+            html += '<div class="list-group">';
+            risk.risks.forEach(r => {
+                const cls = r.level === '高' ? 'danger' : 'warning';
+                html += `<div class="list-group-item list-group-item-${cls} py-1 px-2 small">
+                    <strong>[${r.dimension}]</strong> ${r.detail}
+                </div>`;
+            });
+            html += '</div>';
+        } else {
+            html += '<p class="text-success"><i class="fas fa-check-circle"></i> 未发现明显风险</p>';
+        }
+        $(selector).html(html);
+    }
+
+    function renderAdviceTab(selector, advice) {
+        if (!advice) { $(selector).html('<p class="text-muted">数据不可用</p>'); return; }
+        const actionColors = {'买入':'#e74c3c','谨慎买入':'#e67e22','观望':'#3498db','谨慎持有':'#9b59b6','减仓':'#8e44ad','卖出':'#2c3e50'};
+        let html = `
+            <div class="row mb-3">
+                <div class="col-md-4 text-center">
+                    <div class="p-3 rounded" style="background:${actionColors[advice.action] || '#6c757d'}22;border:2px solid ${actionColors[advice.action] || '#6c757d'}">
+                        <div style="font-size:1.5rem;font-weight:700;color:${actionColors[advice.action] || '#6c757d'}">${advice.action || 'N/A'}</div>
+                        <div class="small text-muted mt-1">建议仓位: ${advice.position_pct || 'N/A'}</div>
+                    </div>
+                </div>
+                <div class="col-md-8">
+                    <p class="mb-2">${advice.action_detail || ''}</p>
+                    <div class="row">
+                        ${advice.stop_loss ? `<div class="col-6"><span class="text-danger"><i class="fas fa-shield-alt"></i> 止损位: <strong>${advice.stop_loss}</strong></span></div>` : ''}
+                        ${advice.target_price ? `<div class="col-6"><span class="text-success"><i class="fas fa-bullseye"></i> 目标位: <strong>${advice.target_price}</strong></span></div>` : ''}
+                    </div>
+                </div>
+            </div>`;
+        // 时间维度建议
+        if (advice.time_advice) {
+            html += '<div class="mt-2">';
+            for (const [k, v] of Object.entries(advice.time_advice)) {
+                html += `<div class="small mb-1"><i class="fas fa-clock text-muted"></i> ${v}</div>`;
+            }
+            html += '</div>';
+        }
+        $(selector).html(html);
+    }
+
+    function renderPatternTab(selector, patternData) {
+        if (!patternData || !patternData.patterns) {
+            $(selector).html('<p class="text-muted">形态识别数据不可用</p>');
+            return;
+        }
+        const patterns = patternData.patterns || [];
+        const summary = patternData.summary || '';
+        const dominant = patternData.dominant_signal || 'neutral';
+        const strength = patternData.signal_strength || 0;
+
+        const signalColors = {bullish: '#28a745', bearish: '#dc3545', neutral: '#6c757d'};
+        const signalText = {bullish: '看涨', bearish: '看跌', neutral: '中性'};
+
+        let html = '';
+
+        // 主导信号
+        html += `<div class="alert py-2 mb-3" style="background:${signalColors[dominant]}15;border-left:4px solid ${signalColors[dominant]}">
+            <strong>形态信号：<span style="color:${signalColors[dominant]}">${signalText[dominant] || '中性'}</span></strong>
+            （信号强度 ${strength}%）
+            <span class="float-end badge" style="background:${signalColors[dominant]};color:#fff">${patterns.length} 个形态</span>
+        </div>`;
+
+        if (patterns.length === 0) {
+            html += '<p class="text-muted"><i class="fas fa-search"></i> 未检测到明显的技术形态</p>';
+            $(selector).html(html);
+            return;
+        }
+
+        // 形态列表
+        html += '<div class="list-group">';
+        patterns.forEach(p => {
+            const dirColor = signalColors[p.direction] || '#6c757d';
+            const dirText = signalText[p.direction] || '中性';
+            const completionColor = p.completion >= 80 ? '#28a745' : p.completion >= 50 ? '#f6c23e' : '#6c757d';
+
+            html += `<div class="list-group-item mb-2" style="border-left:4px solid ${dirColor};border-radius:6px;">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="mb-0">
+                        <span class="badge" style="background:${dirColor};color:#fff">${dirText}</span>
+                        <strong>${p.name}</strong>
+                    </h6>
+                    <div>
+                        <span class="badge bg-light text-dark">可靠性 ${p.reliability}分</span>
+                    </div>
+                </div>
+                <div class="row small mb-1">
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-center">
+                            <span class="me-2">完成度:</span>
+                            <div class="progress flex-grow-1" style="height:6px;">
+                                <div class="progress-bar" style="width:${p.completion}%;background:${completionColor}" role="progressbar"></div>
+                            </div>
+                            <span class="ms-2 fw-bold">${p.completion}%</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        ${p.target_price ? `<span class="text-success me-3"><i class="fas fa-bullseye"></i> 目标: ${p.target_price}</span>` : ''}
+                        ${p.stop_loss ? `<span class="text-danger"><i class="fas fa-shield-alt"></i> 止损: ${p.stop_loss}</span>` : ''}
+                    </div>
+                </div>
+                ${p.neckline ? `<div class="small text-info"><i class="fas fa-minus"></i> 颈线: ${p.neckline}</div>` : ''}
+                <div class="small text-muted mt-1">${p.description || ''}</div>
+            </div>`;
+        });
+        html += '</div>';
+
+        $(selector).html(html);
+    }
+
     function startAIAnalysis() {
         resetAIAnalysisUI();
         

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>📊 A股量化日报 Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', 'PingFang SC', sans-serif; }
+  .mono { font-family: 'SF Mono', 'Menlo', 'Monaco', monospace; }
+  .log-box {
+    background: #0d1117; color: #c9d1d9;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .markdown-body { line-height: 1.75; }
+  .markdown-body h1 { font-size: 1.6em; font-weight: 700; margin-top: 1em; border-bottom: 1px solid #333; padding-bottom: 0.3em; }
+  .markdown-body h2 { font-size: 1.3em; font-weight: 700; margin-top: 1em; }
+  .markdown-body h3 { font-size: 1.1em; font-weight: 600; margin-top: 0.8em; }
+  .markdown-body p { margin: 0.6em 0; }
+  .markdown-body code { background: #f3f4f6; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
+  .markdown-body pre { background: #0d1117; color: #c9d1d9; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  .markdown-body pre code { background: transparent; color: inherit; }
+  .markdown-body table { border-collapse: collapse; margin: 0.8em 0; }
+  .markdown-body th, .markdown-body td { border: 1px solid #e5e7eb; padding: 6px 10px; }
+  .markdown-body th { background: #f9fafb; }
+  .markdown-body ul, .markdown-body ol { margin: 0.5em 0 0.5em 1.5em; }
+  .markdown-body blockquote { border-left: 4px solid #d1d5db; padding-left: 1em; color: #6b7280; }
+  /* Toast */
+  .toast {
+    position: fixed; top: 20px; right: 20px; z-index: 100;
+    background: #111827; color: white; padding: 12px 18px; border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25); opacity: 0; transform: translateY(-10px);
+    transition: all 0.25s ease; max-width: 400px; font-size: 14px;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok { background: #059669; }
+  .toast.err { background: #dc2626; }
+</style>
+</head>
+
+<body class="bg-gray-50 text-gray-900">
+
+<div id="toast" class="toast"></div>
+
+<!-- 顶部栏 -->
+<header class="bg-black text-white border-b border-gray-800">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">📊</span>
+      <h1 class="text-xl font-bold tracking-tight">A股量化日报 Dashboard</h1>
+      <span class="text-xs text-gray-400 mono" id="now">--</span>
+    </div>
+    <div class="flex items-center gap-4 text-sm">
+      <a href="http://localhost:5088" target="_blank" class="text-gray-400 hover:text-white">🧮 个股评分</a>
+      <button id="btnRefresh" class="px-3 py-1.5 bg-white text-black rounded hover:bg-gray-200 font-medium">🔄 刷新</button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+
+  <!-- 数据状态 -->
+  <section class="bg-white rounded-lg border border-gray-200 p-5">
+    <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><span>💾</span><span>数据状态</span></h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="statusGrid">
+      <div class="p-4 bg-gray-50 rounded animate-pulse">加载中...</div>
+      <div class="p-4 bg-gray-50 rounded animate-pulse">加载中...</div>
+      <div class="p-4 bg-gray-50 rounded animate-pulse">加载中...</div>
+    </div>
+  </section>
+
+  <!-- 任务中心 -->
+  <section class="bg-white rounded-lg border border-gray-200 p-5">
+    <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+      <span>⚙️</span><span>任务中心</span>
+      <span class="text-xs text-gray-400 font-normal ml-2">点击"▶ 运行"即可后台执行</span>
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" id="tasksGrid">
+      <div class="p-4 bg-gray-50 rounded animate-pulse text-sm text-gray-500">加载任务列表...</div>
+    </div>
+  </section>
+
+  <!-- 报告列表 -->
+  <section class="bg-white rounded-lg border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-bold flex items-center gap-2"><span>📑</span><span>最新报告</span></h2>
+      <div class="flex gap-2 text-sm">
+        <button data-tab="bci" class="tabBtn px-3 py-1 rounded border border-black bg-black text-white">BCI 分析</button>
+        <button data-tab="daily" class="tabBtn px-3 py-1 rounded border border-gray-300 hover:bg-gray-100">作战计划</button>
+      </div>
+    </div>
+    <div id="reportList" class="divide-y divide-gray-100"></div>
+  </section>
+
+</main>
+
+<!-- 日志弹窗 -->
+<div id="logModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+  <div class="bg-white rounded-lg w-full max-w-4xl max-h-[85vh] flex flex-col">
+    <div class="flex items-center justify-between px-5 py-3 border-b">
+      <h3 class="font-bold text-lg" id="logTitle">任务日志</h3>
+      <div class="flex items-center gap-2">
+        <span id="logStatus" class="text-xs mono"></span>
+        <button id="btnCloseLog" class="text-gray-500 hover:text-black text-2xl leading-none">×</button>
+      </div>
+    </div>
+    <div class="log-box flex-1 overflow-auto p-4" id="logContent">（暂无日志）</div>
+    <div class="px-5 py-2 border-t text-xs text-gray-500 flex items-center justify-between">
+      <span id="logTail">刷新中...</span>
+      <div class="flex gap-3">
+        <label class="flex items-center gap-1"><input type="checkbox" id="autoScroll" checked /> 自动滚动</label>
+        <button id="btnCancelTask" class="text-red-600 hover:underline hidden">终止任务</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 报告弹窗 -->
+<div id="reportModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+  <div class="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between px-5 py-3 border-b">
+      <h3 class="font-bold text-lg" id="reportTitle">报告</h3>
+      <button id="btnCloseReport" class="text-gray-500 hover:text-black text-2xl leading-none">×</button>
+    </div>
+    <div id="reportBody" class="flex-1 overflow-auto p-6 markdown-body"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const API = '/api/dashboard';
+
+// ========== 工具 ==========
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+function toast(msg, type='') {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  setTimeout(() => el.className = 'toast', 2500);
+}
+async function apiGet(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    console.error('GET ' + url + ' 失败:', e);
+    throw e;
+  }
+}
+async function apiPost(url, body) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {}),
+  });
+  let data = {};
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+// ========== 状态卡 ==========
+async function loadStatus() {
+  try {
+    const res = await apiGet(`${API}/status`);
+    const grid = $('statusGrid');
+    grid.innerHTML = '';
+    const daily = res.daily || {}, min60 = res.min60 || {}, bci = res.bci_latest;
+
+    grid.appendChild(statusCard('📅 日线数据', daily.ok, [
+      daily.ok ? `最新日期: ${daily.latest_date_display}` : daily.msg,
+      daily.ok ? `股票数量: ${daily.file_count} 只` : '',
+      daily.ok ? (daily.is_today ? '✅ 已是今日' : `⚠️ 落后 ${daily.days_behind} 天`) : '',
+    ]));
+    grid.appendChild(statusCard('⏱️ 60min 数据', min60.ok, [
+      min60.ok ? `最新日期: ${min60.latest_date_display}` : min60.msg,
+      min60.ok ? `股票数量: ${min60.file_count} 只` : '',
+      min60.ok ? (min60.is_today ? '✅ 已是今日' : `⚠️ 落后 ${min60.days_behind} 天`) : '',
+    ]));
+    if (bci) {
+      const card = statusCard('🧩 最新 BCI 报告', true, [bci.name, `生成于: ${bci.mtime}`, '']);
+      const link = document.createElement('a');
+      link.href = '#'; link.className = 'text-blue-600 hover:underline';
+      link.textContent = '📖 查看';
+      link.dataset.reportPath = bci.rel_path;
+      link.dataset.reportName = bci.name;
+      card.querySelector('.status-lines').appendChild(document.createElement('div')).appendChild(link);
+      grid.appendChild(card);
+    } else {
+      grid.appendChild(statusCard('🧩 最新 BCI 报告', false, ['暂无报告']));
+    }
+    $('now').textContent = res.now;
+  } catch (e) {
+    toast('❌ 加载数据状态失败: ' + e.message, 'err');
+  }
+}
+
+function statusCard(title, ok, lines) {
+  const div = document.createElement('div');
+  div.className = `p-4 rounded border ${ok ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`;
+  const dot = ok ? 'bg-green-500' : 'bg-amber-500';
+  div.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <span class="font-semibold text-sm">${esc(title)}</span>
+      <span class="w-2 h-2 rounded-full ${dot}"></span>
+    </div>
+    <div class="text-xs text-gray-600 space-y-1 status-lines">
+      ${lines.filter(Boolean).map(l => `<div>${esc(l)}</div>`).join('')}
+    </div>`;
+  return div;
+}
+
+// ========== 任务 ==========
+let tasksSpec = [];
+
+async function loadTaskSpec() {
+  const res = await apiGet(`${API}/tasks_spec`);
+  tasksSpec = res.tasks || [];
+}
+
+async function loadTasks() {
+  try {
+    if (!tasksSpec.length) await loadTaskSpec();
+    const res = await apiGet(`${API}/tasks`);
+    const grid = $('tasksGrid');
+    grid.innerHTML = '';
+    for (const spec of tasksSpec) {
+      const t = (res.tasks || {})[spec.job] || {};
+      grid.appendChild(taskCard(spec, t));
+    }
+  } catch (e) {
+    console.error(e);
+    $('tasksGrid').innerHTML = `<div class="col-span-full p-4 bg-red-50 border border-red-200 rounded text-red-600 text-sm">加载任务失败: ${esc(e.message)}</div>`;
+  }
+}
+
+function taskCard(spec, t) {
+  const div = document.createElement('div');
+  const status = t.status || 'idle';
+  const badges = {
+    idle:    ['bg-gray-100 text-gray-600', '待机'],
+    running: ['bg-blue-100 text-blue-700', '🔄 运行中'],
+    success: ['bg-green-100 text-green-700', '✅ 成功'],
+    failed:  ['bg-red-100 text-red-700', '❌ 失败'],
+  };
+  const [badgeCls, badgeText] = badges[status] || badges.idle;
+  const running = status === 'running';
+
+  div.className = 'border border-gray-200 rounded-lg p-4 hover:shadow-md transition';
+  div.innerHTML = `
+    <div class="flex items-start justify-between mb-2">
+      <h3 class="font-semibold text-sm">${esc(spec.name)}</h3>
+      <span class="text-xs px-2 py-0.5 rounded ${badgeCls}">${badgeText}</span>
+    </div>
+    <p class="text-xs text-gray-500 mb-3 leading-snug">${esc(spec.desc)}</p>
+    <div class="text-xs text-gray-600 mb-3 mono truncate" title="${esc(t.last_msg || '')}">
+      ${esc(t.last_msg || '(尚未运行)')}
+    </div>
+    <div class="flex items-center justify-between text-xs">
+      <span class="text-gray-400">${esc(t.ended_at ? '完成于 ' + t.ended_at : (t.started_at ? '启动于 ' + t.started_at : ''))}</span>
+      <div class="flex gap-2">
+        <button class="btn-logs px-2 py-1 border border-gray-300 rounded hover:bg-gray-100" data-job="${esc(spec.job)}">日志</button>
+        <button class="btn-run px-3 py-1 rounded text-white ${running ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-800'}"
+                data-job="${esc(spec.job)}" ${running ? 'disabled' : ''}>
+          ${running ? '运行中…' : '▶ 运行'}
+        </button>
+      </div>
+    </div>`;
+  return div;
+}
+
+async function runTask(job) {
+  try {
+    toast(`⏳ 启动任务 ${job}...`);
+    const res = await apiPost(`${API}/run`, {job});
+    if (res.ok) {
+      toast(`✅ 任务已启动`, 'ok');
+      showLogs(job);
+      loadTasks();
+    } else {
+      toast('❌ ' + (res.error || '启动失败'), 'err');
+    }
+  } catch (e) {
+    console.error('runTask error:', e);
+    toast('❌ 启动失败: ' + e.message, 'err');
+  }
+}
+
+// ========== 日志 ==========
+let currentJob = null;
+let logTimer = null;
+
+function showLogs(job) {
+  currentJob = job;
+  const spec = tasksSpec.find(s => s.job === job);
+  $('logTitle').textContent = spec ? spec.name : job;
+  $('logContent').textContent = '加载中...';
+  $('logModal').classList.remove('hidden');
+  fetchLogs();
+  if (logTimer) clearInterval(logTimer);
+  logTimer = setInterval(fetchLogs, 1500);
+}
+
+function closeLogs() {
+  $('logModal').classList.add('hidden');
+  if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  currentJob = null;
+  loadTasks();
+}
+
+async function fetchLogs() {
+  if (!currentJob) return;
+  try {
+    const res = await apiGet(`${API}/logs?job=${currentJob}&tail=500`);
+    const logEl = $('logContent');
+    const newText = (res.logs || []).join('\n') || '（暂无日志）';
+    if (logEl.textContent !== newText) {
+      logEl.textContent = newText;
+      if ($('autoScroll').checked) logEl.scrollTop = logEl.scrollHeight;
+    }
+    const st = res.status;
+    if (st) {
+      const s = st.status;
+      const color = {running:'text-blue-600',success:'text-green-600',failed:'text-red-600',idle:'text-gray-500'}[s] || '';
+      $('logStatus').innerHTML = `<span class="${color}">${esc(s.toUpperCase())}</span>` +
+        (st.exit_code != null ? ` · exit=${st.exit_code}` : '');
+      $('btnCancelTask').classList.toggle('hidden', s !== 'running');
+      if (s !== 'running' && logTimer) {
+        clearInterval(logTimer); logTimer = null;
+        loadTasks();
+      }
+    }
+    $('logTail').textContent = `共 ${(res.logs || []).length} 行 · 每 1.5s 刷新`;
+  } catch (e) {
+    console.error('fetchLogs error:', e);
+    $('logTail').textContent = '❌ 日志加载失败: ' + e.message;
+  }
+}
+
+async function cancelCurrent() {
+  if (!currentJob || !confirm('确认终止该任务？')) return;
+  try { await apiPost(`${API}/cancel`, {job: currentJob}); toast('已请求终止', 'ok'); }
+  catch (e) { toast('❌ ' + e.message, 'err'); }
+}
+
+// ========== 报告 ==========
+let currentReportTab = 'bci';
+
+async function switchTab(kind) {
+  currentReportTab = kind;
+  document.querySelectorAll('.tabBtn').forEach(b => {
+    const active = b.dataset.tab === kind;
+    b.className = 'tabBtn px-3 py-1 rounded border ' +
+      (active ? 'border-black bg-black text-white' : 'border-gray-300 hover:bg-gray-100');
+  });
+  await loadReports(kind);
+}
+
+async function loadReports(kind='bci') {
+  try {
+    const res = await apiGet(`${API}/reports?kind=${kind}&limit=15`);
+    const box = $('reportList');
+    box.innerHTML = '';
+    if (!res.items || !res.items.length) {
+      box.innerHTML = '<div class="py-4 text-sm text-gray-500">暂无报告</div>';
+      return;
+    }
+    for (const r of res.items) {
+      const row = document.createElement('div');
+      row.className = 'py-3 flex items-center justify-between hover:bg-gray-50 px-2 rounded';
+      const kb = (r.size / 1024).toFixed(1);
+      row.innerHTML = `
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-sm truncate">${esc(r.name)}</div>
+          <div class="text-xs text-gray-500 mono">${esc(r.mtime)} · ${kb} KB</div>
+        </div>
+        <button class="btn-view ml-3 text-xs px-3 py-1 border border-gray-300 rounded hover:bg-black hover:text-white"
+                data-path="${esc(r.rel_path)}" data-name="${esc(r.name)}">📖 查看</button>`;
+      box.appendChild(row);
+    }
+  } catch (e) {
+    toast('❌ 加载报告失败: ' + e.message, 'err');
+  }
+}
+
+async function openReport(relPath, name) {
+  $('reportTitle').textContent = name;
+  $('reportBody').innerHTML = '<p class="text-gray-500">加载中...</p>';
+  $('reportModal').classList.remove('hidden');
+  try {
+    const res = await apiGet(`${API}/report?path=${encodeURIComponent(relPath)}`);
+    if (res.error) throw new Error(res.error);
+    $('reportBody').innerHTML = marked.parse(res.content);
+  } catch (e) {
+    $('reportBody').innerHTML = `<p class="text-red-600">加载失败: ${esc(e.message)}</p>`;
+  }
+}
+
+function closeReport() { $('reportModal').classList.add('hidden'); }
+
+// ========== 事件绑定（事件委托）==========
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  // 任务按钮（委托给整个文档）
+  const runBtn = t.closest('.btn-run');
+  if (runBtn && !runBtn.disabled) { runTask(runBtn.dataset.job); return; }
+
+  const logBtn = t.closest('.btn-logs');
+  if (logBtn) { showLogs(logBtn.dataset.job); return; }
+
+  const viewBtn = t.closest('.btn-view');
+  if (viewBtn) { openReport(viewBtn.dataset.path, viewBtn.dataset.name); return; }
+
+  const tabBtn = t.closest('.tabBtn');
+  if (tabBtn) { switchTab(tabBtn.dataset.tab); return; }
+
+  // 状态卡片里的 BCI 查看链接
+  const reportLink = t.closest('[data-report-path]');
+  if (reportLink) {
+    e.preventDefault();
+    openReport(reportLink.dataset.reportPath, reportLink.dataset.reportName);
+    return;
+  }
+});
+
+// 固定按钮
+$('btnRefresh').addEventListener('click', refreshAll);
+$('btnCloseLog').addEventListener('click', closeLogs);
+$('btnCloseReport').addEventListener('click', closeReport);
+$('btnCancelTask').addEventListener('click', cancelCurrent);
+
+// 全局错误捕获（方便用户看到）
+window.addEventListener('error', (e) => {
+  console.error('全局错误:', e.error || e.message);
+  toast('⚠️ JS错误: ' + (e.message || '未知'), 'err');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('未处理的 Promise 异常:', e.reason);
+  toast('⚠️ Promise异常: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)), 'err');
+});
+
+function refreshAll() {
+  loadStatus();
+  loadTasks();
+  loadReports(currentReportTab);
+}
+
+// ========== 初始化 ==========
+(async function init() {
+  try {
+    await loadTaskSpec();
+    refreshAll();
+    // 每 5 秒刷新任务状态
+    setInterval(() => {
+      loadTasks().catch(err => console.error('定时刷新失败:', err));
+    }, 5000);
+  } catch (e) {
+    toast('❌ 初始化失败: ' + e.message, 'err');
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI辩论分析 - 智能分析系统</title>
+    <!-- Bootstrap CSS -->
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="/static/css/all.min.css" rel="stylesheet">
+    <style>
+        .debate-header {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 50%, #ff8e53 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .company-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+        .company-alibaba { background-color: #ff6900; color: white; }
+        .company-meta { background-color: #1877f2; color: white; }
+        .company-google { background-color: #4285f4; color: white; }
+        .company-mistral { background-color: #ff7b00; color: white; }
+        .company-deepseek { background-color: #2d3748; color: white; }
+        
+        .debate-round {
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        .debate-round-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+        }
+        .model-debate-card {
+            border-left: 4px solid #007bff;
+            margin: 10px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 0 8px 8px 0;
+        }
+        .final-decision {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 30px 0;
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
+        }
+        .disagreement-alert {
+            background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .consensus-meter {
+            height: 20px;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #e9ecef;
+            margin: 10px 0;
+        }
+        .consensus-fill {
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+        .consensus-high { background: linear-gradient(90deg, #28a745, #20c997); }
+        .consensus-medium { background: linear-gradient(90deg, #ffc107, #ff8c00); }
+        .consensus-low { background: linear-gradient(90deg, #dc3545, #fd7e14); }
+        
+        .analysis-timeline {
+            position: relative;
+            padding-left: 30px;
+        }
+        .timeline-item {
+            position: relative;
+            padding: 20px 0;
+            border-left: 3px solid #007bff;
+            margin-left: 15px;
+            padding-left: 25px;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -8px;
+            top: 25px;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #007bff;
+        }
+        .loading-debate {
+            text-align: center;
+            padding: 60px;
+        }
+        .debate-spinner {
+            width: 4rem;
+            height: 4rem;
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #ff6b6b;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-brain me-2"></i>智能分析系统
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/dashboard">仪表盘</a>
+                <a class="nav-link" href="/multi_model_analysis">多模型分析</a>
+                <a class="nav-link active" href="/debate_analysis">AI辩论分析</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="debate-header">
+            <h2 class="mb-0">
+                <i class="fas fa-comments me-3"></i>AI辩论分析系统
+            </h2>
+            <p class="mb-0 mt-2">当AI模型产生分歧时，让它们互相辩论，最终给出确定性答案</p>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <label for="stockCode" class="form-label">股票代码</label>
+                                <input type="text" class="form-control" id="stockCode" placeholder="请输入股票代码，如：000001">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="marketType" class="form-label">市场类型</label>
+                                <select class="form-select" id="marketType">
+                                    <option value="A">A股</option>
+                                    <option value="US">美股</option>
+                                    <option value="HK">港股</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="button" class="btn btn-danger w-100" onclick="startDebateAnalysis()">
+                                    <i class="fas fa-fire me-2"></i>开始AI辩论
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 模型公司展示 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-muted mb-3">
+                                    <i class="fas fa-building me-2"></i>参与辩论的AI公司
+                                </h6>
+                                <div id="modelCompanies" class="d-flex flex-wrap gap-3">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-robot me-2 text-primary"></i>
+                                        <span>Alibaba</span>
+                                        <span class="company-badge company-alibaba">阿里巴巴</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-robot me-2 text-primary"></i>
+                                        <span>Meta</span>
+                                        <span class="company-badge company-meta">Meta</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-robot me-2 text-primary"></i>
+                                        <span>Google</span>
+                                        <span class="company-badge company-google">谷歌</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-robot me-2 text-primary"></i>
+                                        <span>Mistral AI</span>
+                                        <span class="company-badge company-mistral">Mistral</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-robot me-2 text-primary"></i>
+                                        <span>DeepSeek</span>
+                                        <span class="company-badge company-deepseek">深度求索</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分析结果区域 -->
+        <div id="debateResults" class="mt-4" style="display: none;">
+            <!-- 最终决策 -->
+            <div id="finalDecision" class="final-decision">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h3><i class="fas fa-gavel me-3"></i>最终确定性决策</h3>
+                        <div id="decisionContent"></div>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <div class="text-white">
+                            <i class="fas fa-balance-scale fa-4x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 分歧检测 -->
+            <div id="disagreementInfo" class="disagreement-alert" style="display: none;">
+                <h5><i class="fas fa-exclamation-triangle me-2"></i>检测到观点分歧</h5>
+                <div id="disagreementContent"></div>
+            </div>
+
+            <!-- 分析时间轴 -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-timeline me-2"></i>分析过程时间轴</h5>
+                </div>
+                <div class="card-body">
+                    <div id="analysisTimeline" class="analysis-timeline">
+                        <!-- 动态生成时间轴 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 辩论过程 -->
+            <div id="debateProcess" style="display: none;">
+                <h4 class="mt-4 mb-3">
+                    <i class="fas fa-comments me-2 text-danger"></i>辩论过程详情
+                </h4>
+                <div id="debateRounds">
+                    <!-- 动态生成辩论轮次 -->
+                </div>
+            </div>
+
+            <!-- 初始分析结果 -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-microscope me-2"></i>初始分析结果</h5>
+                </div>
+                <div class="card-body">
+                    <div id="initialResults" class="row">
+                        <!-- 动态生成初始分析结果 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 加载状态 -->
+        <div id="loadingDebate" class="loading-debate" style="display: none;">
+            <div class="debate-spinner mx-auto mb-4"></div>
+            <h4>AI模型辩论中...</h4>
+            <p class="text-muted">正在进行多轮辩论以达成共识，请耐心等待</p>
+            <div id="debateProgress" class="mt-4">
+                <div class="progress" style="height: 8px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-danger" 
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+                <small class="text-muted mt-2 d-block">预计需要1-3分钟</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/jquery.js"></script>
+    
+    <script>
+        // 开始辩论分析
+        function startDebateAnalysis() {
+            const stockCode = $('#stockCode').val().trim();
+            const marketType = $('#marketType').val();
+            
+            if (!stockCode) {
+                alert('请输入股票代码');
+                return;
+            }
+            
+            // 显示加载状态
+            $('#debateResults').hide();
+            $('#loadingDebate').show();
+            
+            // 模拟进度条
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 10;
+                if (progress > 90) progress = 90;
+                $('#debateProgress .progress-bar').css('width', progress + '%');
+            }, 1000);
+            
+            // 调用辩论分析API
+            $.ajax({
+                url: '/api/debate_analysis',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    stock_code: stockCode,
+                    market_type: marketType
+                }),
+                timeout: 600000 // 10分钟超时
+            })
+            .done(function(data) {
+                clearInterval(progressInterval);
+                $('#debateProgress .progress-bar').css('width', '100%');
+                
+                setTimeout(() => {
+                    $('#loadingDebate').hide();
+                    displayDebateResults(data);
+                    $('#debateResults').show();
+                }, 1000);
+            })
+            .fail(function(xhr) {
+                clearInterval(progressInterval);
+                $('#loadingDebate').hide();
+                
+                let errorMsg = '分析失败';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg = xhr.responseJSON.error;
+                }
+                
+                alert('辩论分析失败: ' + errorMsg);
+            });
+        }
+
+        // 显示辩论结果
+        function displayDebateResults(data) {
+            // 显示最终决策
+            displayFinalDecision(data.final_decision, data.analysis_metadata);
+            
+            // 显示分歧信息
+            if (data.initial_analysis.disagreement_info.has_disagreement) {
+                displayDisagreementInfo(data.initial_analysis.disagreement_info);
+            }
+            
+            // 显示分析时间轴
+            displayAnalysisTimeline(data);
+            
+            // 显示辩论过程
+            if (data.debate_process) {
+                displayDebateProcess(data.debate_process);
+            }
+            
+            // 显示初始分析结果
+            displayInitialResults(data.initial_analysis.results);
+        }
+
+        // 显示最终决策
+        function displayFinalDecision(decision, metadata) {
+            const confidenceClass = 
+                decision.confidence_level === '高' ? 'text-success' :
+                decision.confidence_level === '中' ? 'text-warning' : 'text-danger';
+            
+            const content = `
+                <div class="mb-3">
+                    <h4>${decision.decision_text}</h4>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="mb-2">
+                            <strong>决策:</strong> ${decision.final_decision} | 
+                            <strong>评分:</strong> ${decision.average_score}/10
+                        </p>
+                        <p class="mb-2">
+                            <strong>置信度:</strong> <span class="${confidenceClass}">${decision.confidence_level}</span> | 
+                            <strong>共识度:</strong> ${(decision.consensus_ratio * 100).toFixed(1)}%
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-2">
+                            <strong>支持模型:</strong> ${decision.supporting_models}/${decision.total_models}
+                        </p>
+                        <p class="mb-0">
+                            <strong>总耗时:</strong> ${metadata.total_execution_time}秒 | 
+                            <strong>辩论:</strong> ${metadata.debate_conducted ? '已进行' : '未进行'}
+                        </p>
+                    </div>
+                </div>
+            `;
+            $('#decisionContent').html(content);
+        }
+
+        // 显示分歧信息
+        function displayDisagreementInfo(disagreement) {
+            $('#disagreementInfo').show();
+            
+            const content = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="mb-2">
+                            <strong>分歧程度:</strong> ${(disagreement.disagreement_level * 100).toFixed(1)}%
+                        </p>
+                        <div class="consensus-meter">
+                            <div class="consensus-fill consensus-low" style="width: ${disagreement.disagreement_level * 100}%"></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="mb-2"><strong>观点分布:</strong></p>
+                        ${Object.entries(disagreement.recommendation_distribution).map(([rec, count]) => 
+                            `<span class="badge bg-light text-dark me-2">${rec}: ${count}个</span>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+            $('#disagreementContent').html(content);
+        }
+
+        // 显示分析时间轴
+        function displayAnalysisTimeline(data) {
+            let timelineHtml = '';
+            
+            // 初始分析
+            timelineHtml += `
+                <div class="timeline-item">
+                    <h6>初始多模型分析</h6>
+                    <p class="text-muted mb-1">成功: ${data.analysis_metadata.successful_initial_analysis}/${data.analysis_metadata.total_models} 个模型</p>
+                    <p class="text-muted mb-0">检测分歧: ${data.analysis_metadata.disagreement_detected ? '是' : '否'}</p>
+                </div>
+            `;
+            
+            // 辩论过程
+            if (data.debate_process) {
+                data.debate_process.debate_results.forEach((round, index) => {
+                    timelineHtml += `
+                        <div class="timeline-item">
+                            <h6>第${round.round}轮辩论</h6>
+                            <p class="text-muted mb-0">参与模型: ${round.results.filter(r => !r.error).length} 个</p>
+                        </div>
+                    `;
+                });
+            }
+            
+            // 最终决策
+            timelineHtml += `
+                <div class="timeline-item">
+                    <h6>生成最终决策</h6>
+                    <p class="text-muted mb-0">确定性答案: ${data.final_decision.final_decision}</p>
+                </div>
+            `;
+            
+            $('#analysisTimeline').html(timelineHtml);
+        }
+
+        // 显示辩论过程
+        function displayDebateProcess(debateProcess) {
+            $('#debateProcess').show();
+            
+            let debateHtml = '';
+            debateProcess.debate_results.forEach((round, index) => {
+                debateHtml += `
+                    <div class="debate-round">
+                        <div class="debate-round-header">
+                            <i class="fas fa-comments me-2"></i>第${round.round}轮辩论
+                            <span class="badge bg-light text-dark ms-2">${round.results.filter(r => !r.error).length} 个模型参与</span>
+                        </div>
+                        <div class="p-3">
+                `;
+                
+                round.results.forEach(result => {
+                    if (!result.error) {
+                        debateHtml += `
+                            <div class="model-debate-card">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-robot me-2"></i>${result.model_name}
+                                        ${getCompanyBadge(result.model_name)}
+                                    </h6>
+                                    <span class="badge bg-primary">${result.recommendation}</span>
+                                </div>
+                                <p class="text-muted small mb-1">${result.technical_analysis}</p>
+                                <div class="d-flex justify-content-between text-sm">
+                                    <span>评分: ${result.score}/10</span>
+                                    <span>置信度: ${(result.confidence * 100).toFixed(1)}%</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+                
+                debateHtml += `
+                        </div>
+                    </div>
+                `;
+            });
+            
+            $('#debateRounds').html(debateHtml);
+        }
+
+        // 显示初始分析结果
+        function displayInitialResults(results) {
+            let resultsHtml = '';
+            
+            results.forEach(result => {
+                if (result.error) {
+                    resultsHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card border-danger">
+                                <div class="card-body">
+                                    <h6 class="card-title text-danger">
+                                        <i class="fas fa-robot me-2"></i>${result.model_name}
+                                        ${getCompanyBadge(result.model_name)}
+                                    </h6>
+                                    <p class="text-danger mb-0">分析失败: ${result.error}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    resultsHtml += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h6 class="card-title mb-0">
+                                            <i class="fas fa-robot me-2"></i>${result.model_name}
+                                            ${getCompanyBadge(result.model_name)}
+                                        </h6>
+                                        <span class="badge bg-primary">${result.recommendation}</span>
+                                    </div>
+                                    <p class="card-text small">${result.technical_analysis}</p>
+                                    <div class="d-flex justify-content-between text-muted small">
+                                        <span>评分: ${result.score}/10</span>
+                                        <span>风险: ${result.risk_level}</span>
+                                        <span>${result.analysis_time}秒</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+            
+            $('#initialResults').html(resultsHtml);
+        }
+
+        // 获取公司标识
+        function getCompanyBadge(modelName) {
+            if (modelName.includes('qwen')) return '<span class="company-badge company-alibaba">阿里</span>';
+            if (modelName.includes('llama')) return '<span class="company-badge company-meta">Meta</span>';
+            if (modelName.includes('gemma')) return '<span class="company-badge company-google">谷歌</span>';
+            if (modelName.includes('mistral')) return '<span class="company-badge company-mistral">Mistral</span>';
+            if (modelName.includes('deepseek')) return '<span class="company-badge company-deepseek">深度求索</span>';
+            return '';
+        }
+
+        // 回车键触发分析
+        $('#stockCode').keypress(function(e) {
+            if (e.which == 13) {
+                startDebateAnalysis();
+            }
+        });
+    </script>
+</body>
+</html>

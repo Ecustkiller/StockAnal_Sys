@@ -4,59 +4,56 @@
 
 {% block content %}
 <div class="finance-portal-container">
-    <!-- 左侧导航栏 -->
+    <!-- 左侧：市场情绪面板 -->
     <div class="portal-sidebar">
-        <div class="sidebar-menu">
-            <div class="sidebar-header">
-                <h5><i class="fas fa-th-list"></i> 功能导航</h5>
+        <!-- 市场情绪概览 -->
+        <div class="sentiment-panel" id="sentiment-panel">
+            <div class="panel-header">
+                <h5><i class="fas fa-heartbeat"></i> 市场情绪</h5>
+                <span class="badge bg-secondary" id="sentiment-date">加载中</span>
+            </div>
+            <div class="panel-body" id="sentiment-body">
+                <div class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <small class="d-block mt-1 text-muted">加载情绪数据...</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- 大盘择时信号 -->
+        <div class="timing-panel mt-3" id="timing-panel">
+            <div class="panel-header">
+                <h5><i class="fas fa-compass"></i> 择时信号</h5>
+            </div>
+            <div class="panel-body" id="timing-body">
+                <div class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <small class="d-block mt-1 text-muted">计算择时信号...</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- 功能导航 -->
+        <div class="nav-panel mt-3">
+            <div class="panel-header">
+                <h5><i class="fas fa-th-list"></i> 功能</h5>
             </div>
             <div class="sidebar-content">
                 <ul class="sidebar-nav">
                     <li><a href="/dashboard"><i class="fas fa-chart-line"></i> 智能仪表盘</a></li>
                     <li><a href="/fundamental"><i class="fas fa-file-invoice-dollar"></i> 基本面分析</a></li>
                     <li><a href="/capital_flow"><i class="fas fa-money-bill-wave"></i> 资金流向</a></li>
-                    <li><a href="/market_scan"><i class="fas fa-search"></i> 市场扫描</a></li>
-                    <li><a href="/scenario_predict"><i class="fas fa-lightbulb"></i> 情景预测</a></li>
-                    <li><a href="/portfolio"><i class="fas fa-briefcase"></i> 投资组合</a></li>
-                    <li><a href="/qa"><i class="fas fa-question-circle"></i> 智能问答</a></li>
-                    <li><a href="/risk_monitor"><i class="fas fa-exclamation-triangle"></i> 风险监控</a></li>
-                    <li><a href="/industry_analysis"><i class="fas fa-industry"></i> 行业分析</a></li>
+                    <li><a href="/claw_score"><i class="fas fa-star"></i> 量化评分</a></li>
+                    <li><a href="/watchlist"><i class="fas fa-bookmark"></i> 自选股</a></li>
                 </ul>
             </div>
         </div>
-
-<!--        <div class="quick-search mt-4">-->
-<!--            <div class="card">-->
-<!--                <div class="card-header">-->
-<!--                    <h5 class="mb-0"><i class="fas fa-search"></i> 快速分析</h5>-->
-<!--                </div>-->
-<!--                <div class="card-body">-->
-<!--                    <form id="quick-analysis-form">-->
-<!--                        <div class="mb-3">-->
-<!--                            <label for="quick-stock-code" class="form-label">股票代码</label>-->
-<!--                            <input type="text" class="form-control" id="quick-stock-code" placeholder="例如: 600519">-->
-<!--                        </div>-->
-<!--                        <div class="mb-3">-->
-<!--                            <label for="quick-market-type" class="form-label">市场类型</label>-->
-<!--                            <select class="form-select" id="quick-market-type">-->
-<!--                                <option value="A" selected>A股</option>-->
-<!--                                <option value="HK">港股</option>-->
-<!--                                <option value="US">美股</option>-->
-<!--                            </select>-->
-<!--                        </div>-->
-<!--                        <div class="d-grid">-->
-<!--                            <button type="button" class="btn btn-primary" id="quick-analysis-btn">开始分析</button>-->
-<!--                        </div>-->
-<!--                    </form>-->
-<!--                </div>-->
-<!--            </div>-->
-<!--        </div>-->
     </div>
 
     <!-- 中间新闻区域 -->
     <div class="portal-news">
         <div class="news-header">
-            <h5><i class="fas fa-newspaper"></i> 实时快讯（来源：财联社）</h5>
+            <h5><i class="fas fa-newspaper"></i> 实时快讯（财联社）</h5>
             <div class="news-tools">
                 <button class="btn btn-sm btn-outline-primary refresh-news-btn">
                     <i class="fas fa-sync-alt"></i>
@@ -77,24 +74,51 @@
         </div>
     </div>
 
-    <!-- 右侧热点区域 -->
+    <!-- 右侧热点板块 -->
     <div class="portal-hotspot">
-        <div class="hotspot-header">
-            <h5><i class="fas fa-fire"></i> 热点</h5>
-        </div>
-        <div class="hotspot-content" id="hotspot-list">
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+        <!-- 热点行业 -->
+        <div class="hotspot-section" id="hot-industries-section">
+            <div class="hotspot-header">
+                <h5><i class="fas fa-fire"></i> 热点板块</h5>
+                <button class="btn btn-sm btn-outline-secondary" id="refresh-sectors-btn">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+            <div class="hotspot-content" id="hot-industries-list">
+                <div class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <small class="d-block mt-1 text-muted">加载热点板块...</small>
                 </div>
-                <p class="mt-2">加载热点中...</p>
+            </div>
+        </div>
+
+        <!-- 主线行业 -->
+        <div class="mainline-section mt-3" id="mainline-section">
+            <div class="hotspot-header">
+                <h5><i class="fas fa-bolt"></i> 主线行业</h5>
+            </div>
+            <div class="mainline-content" id="mainline-list">
+                <div class="text-center py-2">
+                    <small class="text-muted">加载中...</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- 连板统计 -->
+        <div class="board-section mt-3" id="board-section">
+            <div class="hotspot-header">
+                <h5><i class="fas fa-layer-group"></i> 连板统计</h5>
+            </div>
+            <div class="board-content" id="board-list">
+                <div class="text-center py-2">
+                    <small class="text-muted">加载中...</small>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- 页脚固定区域 -->
     <div class="portal-footer">
-        <!-- 页脚市场状态部分 -->
         <div class="market-status">
             <div class="market-group">
                 <div class="group-title">亚太市场</div>
@@ -107,38 +131,19 @@
                         <i class="fas fa-circle"></i> 港股
                         <span class="status-text">加载中...</span>
                     </div>
-                    <div class="status-item" id="taiwan-market">
-                        <i class="fas fa-circle"></i> MSCI中国台湾
-                        <span class="status-text">加载中...</span>
-                    </div>
                     <div class="status-item" id="japan-market">
                         <i class="fas fa-circle"></i> 日经225
                         <span class="status-text">加载中...</span>
                     </div>
                 </div>
             </div>
-
             <div class="market-group">
-                <div class="group-title">欧非中东</div>
+                <div class="group-title">欧美市场</div>
                 <div class="status-group">
                     <div class="status-item" id="uk-market">
                         <i class="fas fa-circle"></i> 富时100
                         <span class="status-text">加载中...</span>
                     </div>
-                    <div class="status-item" id="german-market">
-                        <i class="fas fa-circle"></i> 德国DAX
-                        <span class="status-text">加载中...</span>
-                    </div>
-                    <div class="status-item" id="france-market">
-                        <i class="fas fa-circle"></i> 法国MOEX
-                        <span class="status-text">加载中...</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="market-group">
-                <div class="group-title">美洲市场</div>
-                <div class="status-group">
                     <div class="status-item" id="us-market">
                         <i class="fas fa-circle"></i> 美股
                         <span class="status-text">加载中...</span>
@@ -147,104 +152,550 @@
                         <i class="fas fa-circle"></i> 纳指
                         <span class="status-text">加载中...</span>
                     </div>
-                    <div class="status-item" id="brazil-market">
-                        <i class="fas fa-circle"></i> 巴西
-                        <span class="status-text">加载中...</span>
-                    </div>
                 </div>
             </div>
-
             <div class="current-time" id="current-time">
                 当前时间: <span>{{ current_time }}</span>
                 <span class="refresh-time" id="refresh-time">刷新: 5:00</span>
             </div>
         </div>
-        <div class="ticker-news" id="ticker-container">
-            <div class="ticker-wrapper">
-                <div class="ticker-item">最新消息加载中...</div>
-            </div>
-        </div>
+
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<style>
+/* ==================== 情绪面板样式 ==================== */
+.sentiment-panel, .timing-panel, .nav-panel {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    overflow: hidden;
+}
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+}
+.panel-header h5 {
+    margin: 0;
+    font-size: 14px;
+    color: #333;
+}
+.panel-body {
+    padding: 10px 12px;
+}
+
+/* 情绪指标网格 */
+.sentiment-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.sentiment-item {
+    text-align: center;
+    padding: 6px 4px;
+    border-radius: 6px;
+    background: #f8f9fa;
+}
+.sentiment-item .label {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 2px;
+}
+.sentiment-item .value {
+    font-size: 16px;
+    font-weight: bold;
+}
+.sentiment-item .value.up { color: #e74c3c; }
+.sentiment-item .value.down { color: #27ae60; }
+.sentiment-item .value.neutral { color: #f39c12; }
+
+/* 情绪阶段大标签 */
+.phase-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    font-weight: bold;
+    font-size: 15px;
+}
+.phase-badge.phase-attack { background: linear-gradient(135deg, #ff6b6b, #ee5a24); color: #fff; }
+.phase-badge.phase-normal { background: linear-gradient(135deg, #74b9ff, #0984e3); color: #fff; }
+.phase-badge.phase-repair { background: linear-gradient(135deg, #ffeaa7, #fdcb6e); color: #333; }
+.phase-badge.phase-defense { background: linear-gradient(135deg, #dfe6e9, #b2bec3); color: #333; }
+.phase-badge.phase-empty { background: linear-gradient(135deg, #636e72, #2d3436); color: #fff; }
+
+/* 择时信号 */
+.timing-score {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    padding: 8px 0;
+}
+.timing-score .score-circle {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: bold;
+    color: #fff;
+}
+.timing-score .score-info {
+    text-align: left;
+}
+.timing-score .score-info .signal-text {
+    font-size: 16px;
+    font-weight: bold;
+}
+.timing-score .score-info .position-text {
+    font-size: 12px;
+    color: #666;
+}
+
+/* 信号详情条 */
+.signal-bars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 8px;
+}
+.signal-bar {
+    flex: 0 0 calc(50% - 2px);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.signal-bar .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.signal-bar .dot.bull { background: #e74c3c; }
+.signal-bar .dot.neutral { background: #f39c12; }
+.signal-bar .dot.bear { background: #27ae60; }
+
+/* ==================== 新闻关联股票样式 ==================== */
+.related-stocks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+.stock-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+}
+.stock-tag:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+.stock-tag.match-code {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+}
+.stock-tag.match-name {
+    background: #e3f2fd;
+    color: #1565c0;
+    border: 1px solid #bbdefb;
+}
+.stock-tag.match-concept {
+    background: #fff3e0;
+    color: #e65100;
+    border: 1px solid #ffe0b2;
+}
+
+/* ==================== 热点板块样式 ==================== */
+.hotspot-section, .mainline-section, .board-section {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    overflow: hidden;
+}
+.hotspot-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+}
+.hotspot-header h5 {
+    margin: 0;
+    font-size: 14px;
+    color: #333;
+}
+.hotspot-content, .mainline-content, .board-content {
+    padding: 8px 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.industry-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 13px;
+}
+.industry-item:last-child { border-bottom: none; }
+.industry-item .ind-name {
+    font-weight: 500;
+    color: #333;
+    flex: 1;
+}
+.industry-item .ind-chg {
+    font-weight: bold;
+    min-width: 55px;
+    text-align: right;
+}
+.industry-item .ind-chg.up { color: #e74c3c; }
+.industry-item .ind-chg.down { color: #27ae60; }
+.industry-item .ind-zt {
+    background: #fee;
+    color: #c0392b;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    margin-left: 6px;
+    min-width: 30px;
+    text-align: center;
+}
+
+/* 主线标签 */
+.mainline-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 0;
+}
+.mainline-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 14px;
+    font-size: 12px;
+    font-weight: 500;
+    background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+    color: #fff;
+}
+.mainline-tag i {
+    margin-right: 4px;
+    font-size: 10px;
+}
+
+/* 连板统计 */
+.board-dist-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 12px;
+}
+.board-dist-bar .board-label {
+    min-width: 40px;
+    font-weight: 500;
+    color: #555;
+}
+.board-dist-bar .board-bar {
+    flex: 1;
+    height: 16px;
+    background: #f0f0f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.board-dist-bar .board-bar-fill {
+    height: 100%;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #74b9ff, #0984e3);
+    transition: width 0.5s;
+}
+.board-dist-bar .board-count {
+    min-width: 30px;
+    text-align: right;
+    font-weight: bold;
+    color: #333;
+}
+.max-board-info {
+    padding: 6px 8px;
+    background: #fff3e0;
+    border-radius: 6px;
+    font-size: 12px;
+    margin-top: 6px;
+}
+</style>
+
 <script>
 $(document).ready(function() {
-    // 快速分析按钮点击事件
-    $('#quick-analysis-btn').click(function() {
-        const stockCode = $('#quick-stock-code').val().trim();
-        const marketType = $('#quick-market-type').val();
-
-        if (!stockCode) {
-            alert('请输入股票代码');
-            return;
-        }
-
-        // 跳转到股票详情页
-        window.location.href = `/stock_detail/${stockCode}?market_type=${marketType}`;
-    });
-
-    // 回车键提交表单
-    $('#quick-stock-code').keypress(function(e) {
-        if (e.which === 13) {
-            $('#quick-analysis-btn').click();
-            return false;
-        }
-    });
-
-    // 加载最新新闻
+    // 加载所有数据
     loadLatestNews();
-
-    // 加载舆情热点
-    loadHotspots();
-
-    // 更新市场状态
+    loadMarketSentiment();
+    loadHotSectors();
     updateMarketStatus();
 
-    // 启动滚动新闻
-    startTickerNews();
-
-    // 刷新按钮点击事件
-    $('.refresh-news-btn').click(function() {
-        loadLatestNews();
-    });
-
-    // 只看重要切换事件
-    $('#only-important').change(function() {
-        loadLatestNews();
-    });
+    // 刷新按钮
+    $('.refresh-news-btn').click(function() { loadLatestNews(); });
+    $('#refresh-sectors-btn').click(function() { loadHotSectors(); });
+    $('#only-important').change(function() { loadLatestNews(); });
 
     // 定时刷新
     setInterval(function() {
         updateMarketStatus();
-        // 每5分钟自动刷新新闻
-        loadLatestNews(true); // 静默刷新
-        startTickerNews();
-    }, 300000); // 5分钟
+        loadLatestNews(true);
+    }, 300000);
 
-    // 每秒更新当前时间
-    setInterval(function() {
-        updateCurrentTime();
-    }, 1000);
-
-    // 每秒更新一次时间和倒计时
     setInterval(function() {
         updateCurrentTime();
         updateRefreshCountdown();
     }, 1000);
-
-
 });
 
-// 加载最新新闻函数
+// ==================== 市场情绪数据加载 ====================
+function loadMarketSentiment() {
+    $.ajax({
+        url: '/api/market_sentiment',
+        method: 'GET',
+        timeout: 60000,
+        success: function(data) {
+            if (data.status === 'ok') {
+                displaySentiment(data);
+                displayTiming(data.timing);
+            } else {
+                $('#sentiment-body').html('<div class="text-muted text-center py-2"><small>情绪数据暂不可用</small></div>');
+                $('#timing-body').html('<div class="text-muted text-center py-2"><small>择时数据暂不可用</small></div>');
+            }
+        },
+        error: function() {
+            $('#sentiment-body').html('<div class="text-muted text-center py-2"><small>加载失败，点击重试</small></div>');
+            $('#timing-body').html('<div class="text-muted text-center py-2"><small>加载失败</small></div>');
+        }
+    });
+}
+
+function displaySentiment(data) {
+    const s = data.sentiment || {};
+    const board = data.board_stats || {};
+    const dateStr = data.date || '';
+
+    $('#sentiment-date').text(dateStr);
+
+    // 情绪阶段
+    const phase = s.phase || '未知';
+    let phaseClass = 'phase-normal';
+    if (phase.includes('进攻')) phaseClass = 'phase-attack';
+    else if (phase.includes('正常')) phaseClass = 'phase-normal';
+    else if (phase.includes('修复')) phaseClass = 'phase-repair';
+    else if (phase.includes('防御')) phaseClass = 'phase-defense';
+    else if (phase.includes('空仓')) phaseClass = 'phase-empty';
+
+    let html = `
+        <div class="phase-badge ${phaseClass}">
+            <i class="fas fa-signal me-2"></i>
+            ${phase} · 建议${s.position_advice || '-'}
+        </div>
+        <div class="sentiment-grid">
+            <div class="sentiment-item">
+                <div class="label">涨停</div>
+                <div class="value up">${s.zt_cnt || 0}</div>
+            </div>
+            <div class="sentiment-item">
+                <div class="label">跌停</div>
+                <div class="value down">${s.dt_cnt || 0}</div>
+            </div>
+            <div class="sentiment-item">
+                <div class="label">封板率</div>
+                <div class="value ${(s.fbl||0) > 60 ? 'up' : (s.fbl||0) < 40 ? 'down' : 'neutral'}">${(s.fbl||0).toFixed(0)}%</div>
+            </div>
+            <div class="sentiment-item">
+                <div class="label">赚钱效应</div>
+                <div class="value ${(s.earn_rate||0) > 50 ? 'up' : 'down'}">${(s.earn_rate||0).toFixed(0)}%</div>
+            </div>
+            <div class="sentiment-item">
+                <div class="label">上涨/下跌</div>
+                <div class="value" style="font-size:13px"><span class="up">${s.up_cnt||0}</span>/<span class="down">${s.down_cnt||0}</span></div>
+            </div>
+            <div class="sentiment-item">
+                <div class="label">成交额</div>
+                <div class="value neutral" style="font-size:13px">${((s.total_amount||0)/10000).toFixed(0)}万亿</div>
+            </div>
+        </div>
+    `;
+
+    $('#sentiment-body').html(html);
+
+    // 连板统计
+    if (board.board_dist && Object.keys(board.board_dist).length > 0) {
+        displayBoardStats(board);
+    }
+}
+
+function displayTiming(timing) {
+    if (!timing || !timing.score) {
+        $('#timing-body').html('<div class="text-muted text-center py-2"><small>择时数据暂不可用</small></div>');
+        return;
+    }
+
+    const score = timing.score || 0;
+    const position = timing.position || 50;
+    const signal = timing.signal || '中性';
+    const signalColor = timing.signal_color || 'warning';
+
+    // 分数对应颜色
+    let circleColor = '#f39c12';
+    if (score >= 16) circleColor = '#e74c3c';
+    else if (score >= 12) circleColor = '#3498db';
+    else if (score >= 8) circleColor = '#f39c12';
+    else if (score >= 4) circleColor = '#95a5a6';
+    else circleColor = '#27ae60';
+
+    let html = `
+        <div class="timing-score">
+            <div class="score-circle" style="background:${circleColor}">
+                ${score}/<span style="font-size:12px">${timing.max_score || 20}</span>
+            </div>
+            <div class="score-info">
+                <div class="signal-text" style="color:${circleColor}">${signal}</div>
+                <div class="position-text">建议仓位: ${position}%</div>
+            </div>
+        </div>
+    `;
+
+    // 信号详情
+    const details = timing.signals_detail || {};
+    if (Object.keys(details).length > 0) {
+        html += '<div class="signal-bars">';
+        for (const [key, info] of Object.entries(details)) {
+            const dotClass = info.value === 2 ? 'bull' : (info.value === 0 ? 'bear' : 'neutral');
+            html += `
+                <div class="signal-bar">
+                    <span class="dot ${dotClass}"></span>
+                    <span>${info.name}</span>
+                </div>
+            `;
+        }
+        html += '</div>';
+    }
+
+    $('#timing-body').html(html);
+}
+
+function displayBoardStats(board) {
+    const dist = board.board_dist || {};
+    const maxBoard = board.max_board || 0;
+    const maxStocks = board.max_board_stocks || [];
+
+    // 找最大值用于计算条形图比例
+    const maxCount = Math.max(...Object.values(dist).map(Number), 1);
+
+    let html = '';
+    // 按连板数排序
+    const sortedKeys = Object.keys(dist).sort((a, b) => Number(a) - Number(b));
+    for (const key of sortedKeys) {
+        const count = dist[key];
+        const pct = (count / maxCount * 100).toFixed(0);
+        html += `
+            <div class="board-dist-bar">
+                <span class="board-label">${key}板</span>
+                <div class="board-bar"><div class="board-bar-fill" style="width:${pct}%"></div></div>
+                <span class="board-count">${count}</span>
+            </div>
+        `;
+    }
+
+    if (maxStocks.length > 0) {
+        const stockNames = maxStocks.map(s => `<a href="/stock_detail/${s.code}" class="text-decoration-none">${s.name}</a>`).join('、');
+        html += `<div class="max-board-info"><i class="fas fa-crown text-warning"></i> 最高${maxBoard}板: ${stockNames}</div>`;
+    }
+
+    $('#board-list').html(html || '<div class="text-muted text-center"><small>暂无数据</small></div>');
+}
+
+// ==================== 热点板块加载 ====================
+function loadHotSectors() {
+    $('#hot-industries-list').html('<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div><small class="d-block mt-1 text-muted">加载热点板块...</small></div>');
+
+    $.ajax({
+        url: '/api/hot_sectors',
+        method: 'GET',
+        timeout: 60000,
+        success: function(data) {
+            if (data.status === 'ok') {
+                displayHotIndustries(data.hot_industries || []);
+                displayMainline(data.mainline || []);
+            } else {
+                $('#hot-industries-list').html('<div class="text-muted text-center py-2"><small>热点数据暂不可用</small></div>');
+            }
+        },
+        error: function() {
+            $('#hot-industries-list').html('<div class="text-muted text-center py-2"><small>加载失败</small></div>');
+        }
+    });
+}
+
+function displayHotIndustries(industries) {
+    if (!industries || industries.length === 0) {
+        $('#hot-industries-list').html('<div class="text-muted text-center py-2"><small>暂无数据</small></div>');
+        return;
+    }
+
+    let html = '';
+    industries.forEach((ind, idx) => {
+        const chgClass = (ind.avg_chg || 0) > 0 ? 'up' : 'down';
+        const chgStr = (ind.avg_chg || 0) > 0 ? `+${ind.avg_chg.toFixed(2)}%` : `${ind.avg_chg.toFixed(2)}%`;
+        html += `
+            <div class="industry-item">
+                <span class="ind-name">${idx + 1}. ${ind.name}</span>
+                <span class="ind-chg ${chgClass}">${chgStr}</span>
+                ${ind.latest_limit_up > 0 ? `<span class="ind-zt">${ind.latest_limit_up}涨停</span>` : ''}
+            </div>
+        `;
+    });
+
+    $('#hot-industries-list').html(html);
+}
+
+function displayMainline(mainline) {
+    if (!mainline || mainline.length === 0) {
+        $('#mainline-list').html('<div class="text-muted text-center py-2"><small>暂未识别到主线</small></div>');
+        return;
+    }
+
+    let html = '<div class="mainline-tags">';
+    mainline.forEach(name => {
+        html += `<span class="mainline-tag"><i class="fas fa-fire"></i> ${name}</span>`;
+    });
+    html += '</div>';
+
+    $('#mainline-list').html(html);
+}
+
+// ==================== 新闻加载（带关联股票）====================
 function loadLatestNews(silent = false) {
     if (!silent) {
         $('#news-timeline').html(`
             <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
+                <div class="spinner-border text-primary" role="status"></div>
                 <p class="mt-2">加载新闻中...</p>
             </div>
         `);
@@ -255,22 +706,15 @@ function loadLatestNews(silent = false) {
     $.ajax({
         url: '/api/latest_news',
         method: 'GET',
-        data: {
-            days: 2,
-            limit: 500,
-            important: onlyImportant ? 1 : 0
-        },
+        data: { days: 2, limit: 500, important: onlyImportant ? 1 : 0 },
         success: function(response) {
             if (response.success && response.news && response.news.length > 0) {
                 displayNewsTimeline(response.news);
-            } else {
-                if (!silent) {
-                    $('#news-timeline').html('<div class="alert alert-info">暂无最新新闻</div>');
-                }
+            } else if (!silent) {
+                $('#news-timeline').html('<div class="alert alert-info">暂无最新新闻</div>');
             }
         },
         error: function(err) {
-            console.error('获取新闻失败:', err);
             if (!silent) {
                 $('#news-timeline').html('<div class="alert alert-danger">获取新闻失败，请稍后重试</div>');
             }
@@ -278,358 +722,160 @@ function loadLatestNews(silent = false) {
     });
 }
 
-// 加载舆情热点函数
-function loadHotspots() {
-    $('#hotspot-list').html(`
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">加载热点中...</p>
-        </div>
-    `);
-
-    $.ajax({
-        url: '/api/latest_news',
-        method: 'GET',
-        data: {
-            days: 1,
-            limit: 10,
-            type: 'hotspot'
-        },
-        success: function(response) {
-            if (response.success && response.news && response.news.length > 0) {
-                displayHotspots(response.news);
-            } else {
-                $('#hotspot-list').html('<div class="alert alert-info">暂无舆情热点</div>');
-            }
-        },
-        error: function(err) {
-            console.error('获取热点失败:', err);
-            $('#hotspot-list').html('<div class="alert alert-danger">获取热点失败，请稍后重试</div>');
-        }
-    });
-}
-
-// 显示热点列表
-function displayHotspots(hotspots) {
-    if (hotspots.length === 0) {
-        $('#hotspot-list').html('<div class="alert alert-info">暂无舆情热点</div>');
-        return;
-    }
-
-    let hotspotsHtml = '<div class="hotspot-list">';
-
-    hotspots.forEach((item, index) => {
-        const rankClass = index < 3 ? 'rank-top' : '';
-        hotspotsHtml += `
-            <div class="hotspot-item">
-                <span class="hotspot-rank ${rankClass}">${index + 1}</span>
-                <span class="hotspot-title">${item.title || item.content}</span>
-            </div>
-        `;
-    });
-
-    hotspotsHtml += '</div>';
-
-    $('#hotspot-list').html(hotspotsHtml);
-}
-
-// 替换现有的displayNewsTimeline函数
 function displayNewsTimeline(newsList) {
     if (newsList.length === 0) {
         $('#news-timeline').html('<div class="alert alert-info">暂无新闻</div>');
         return;
     }
-    
+
     let timelineHtml = '<div class="news-timeline-container">';
-    
-    // 首先按完整的日期时间排序，确保最新消息在最前面
+
+    // 按时间排序
     newsList.sort((a, b) => {
-        // 构建完整的日期时间字符串 (YYYY-MM-DD HH:MM)
         const dateTimeA = (a.date || '') + ' ' + (a.time || '00:00');
         const dateTimeB = (b.date || '') + ' ' + (b.time || '00:00');
-        
-        // 转换为Date对象进行比较
-        const timeA = new Date(dateTimeA);
-        const timeB = new Date(dateTimeB);
-        
-        // 返回降序结果（最新的在前）
-        return timeB - timeA;
+        return new Date(dateTimeB) - new Date(dateTimeA);
     });
-    
-    // 按天和时间点分组
+
+    // 按时间点分组
     const newsGroups = {};
     newsList.forEach(news => {
-        // 创建格式为"YYYY-MM-DD HH:MM"的键
         const date = news.date || '';
         const time = news.time || '00:00';
-        
-        // 显示用的键：日期+时间
         const displayKey = `${date} ${time.substring(0, 5)}`;
-        
-        if (!newsGroups[displayKey]) {
-            newsGroups[displayKey] = [];
-        }
+        if (!newsGroups[displayKey]) newsGroups[displayKey] = [];
         newsGroups[displayKey].push(news);
     });
-    
-    // 获取并按时间降序排列所有组键
-    const sortedKeys = Object.keys(newsGroups).sort((a, b) => {
-        const timeA = new Date(a);
-        const timeB = new Date(b);
-        return timeB - timeA;
-    });
-    
-    // 生成时间线HTML
+
+    const sortedKeys = Object.keys(newsGroups).sort((a, b) => new Date(b) - new Date(a));
+
     sortedKeys.forEach(displayKey => {
         const newsItems = newsGroups[displayKey];
         const parts = displayKey.split(' ');
         const date = parts[0];
         const time = parts[1];
-        
-        // 格式化显示日期（只在新的一天开始时显示）
         const formattedDate = formatDate(date);
-        
+
         timelineHtml += `
             <div class="time-point">
                 <div class="time-label">${time}</div>
                 <div class="time-date">${formattedDate}</div>
                 <div class="news-items">
         `;
-        
+
         newsItems.forEach(news => {
             let contentClass = '';
-            // 根据内容中是否含有特定关键词添加样式
-            if (news.content && (news.content.includes('增长') || news.content.includes('上涨') || news.content.includes('利好'))) {
+            const content = news.content || '';
+            if (content.includes('增长') || content.includes('上涨') || content.includes('利好')) {
                 contentClass = 'text-success';
-            } else if (news.content && (news.content.includes('下跌') || news.content.includes('下降') || news.content.includes('利空'))) {
+            } else if (content.includes('下跌') || content.includes('下降') || content.includes('利空')) {
                 contentClass = 'text-danger';
             }
-            
+
+            // 关联股票标签
+            let stockTagsHtml = '';
+            const relatedStocks = news.related_stocks || [];
+            if (relatedStocks.length > 0) {
+                stockTagsHtml = '<div class="related-stocks">';
+                relatedStocks.forEach(stock => {
+                    const tagClass = `match-${stock.match_type || 'concept'}`;
+                    stockTagsHtml += `<a href="/stock_detail/${stock.code}" class="stock-tag ${tagClass}" title="${stock.reason}">${stock.name}</a>`;
+                });
+                stockTagsHtml += '</div>';
+            }
+
             timelineHtml += `
                 <div class="news-item">
-                    <div class="news-content ${contentClass}">${news.content || ''}</div>
+                    <div class="news-content ${contentClass}">${content}</div>
+                    ${stockTagsHtml}
                 </div>
             `;
         });
-        
-        timelineHtml += `
-                </div>
-            </div>
-        `;
+
+        timelineHtml += '</div></div>';
     });
-    
+
     timelineHtml += '</div>';
-    
-    // 更新DOM
     $('#news-timeline').html(timelineHtml);
 }
 
-// 日期格式化辅助函数
 function formatDate(dateStr) {
-    // 检查是否与当天日期相同
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
-    
-    if (dateStr === todayStr) {
-        return '';
-    }
-    
-    // 昨天
+    if (dateStr === todayStr) return '';
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-    
-    if (dateStr === yesterdayStr) {
-        return '昨天';
-    }
-    
-    // 其他日期用中文格式
+    if (dateStr === yesterday.toISOString().split('T')[0]) return '昨天';
     const date = new Date(dateStr);
     return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
-// 添加页面自动刷新功能
-let refreshCountdown = 300; // 5分钟倒计时（秒）
+// ==================== 市场状态 ====================
+let refreshCountdown = 300;
 
-// 更新市场状态
 function updateMarketStatus() {
     const now = new Date();
     const hours = now.getHours();
     const minutes = now.getMinutes();
-    const weekday = now.getDay(); // 0为周日，6为周六
-
-    // 检查是否为工作日
+    const weekday = now.getDay();
     const isWeekend = weekday === 0 || weekday === 6;
 
-    // 亚太市场时区
-    // A股状态 (9:30-11:30, 13:00-15:00)
     let chinaStatus = { open: false, text: '未开市' };
-    if (!isWeekend && ((hours === 9 && minutes >= 30) || hours === 10 || (hours === 11 && minutes <= 30) ||
-        (hours >= 13 && hours < 15))) {
+    if (!isWeekend && ((hours === 9 && minutes >= 30) || hours === 10 || (hours === 11 && minutes <= 30) || (hours >= 13 && hours < 15))) {
         chinaStatus = { open: true, text: '交易中' };
     }
 
-    // 港股状态 (9:30-12:00, 13:00-16:00)
     let hkStatus = { open: false, text: '未开市' };
-    if (!isWeekend && ((hours === 9 && minutes >= 30) || hours === 10 || hours === 11 ||
-        (hours >= 13 && hours < 16))) {
+    if (!isWeekend && ((hours === 9 && minutes >= 30) || hours === 10 || hours === 11 || (hours >= 13 && hours < 16))) {
         hkStatus = { open: true, text: '交易中' };
     }
 
-    // 台股状态 (9:00-13:30)
-    let taiwanStatus = { open: false, text: '未开市' };
-    if (!isWeekend && ((hours === 9) || hours === 10 || hours === 11 || hours === 12 ||
-        (hours === 13 && minutes <= 30))) {
-        taiwanStatus = { open: true, text: '交易中' };
-    }
-
-    // 日本股市 (9:00-11:30, 12:30-15:00)
     let japanStatus = { open: false, text: '未开市' };
-    if (!isWeekend && ((hours === 9) || hours === 10 || (hours === 11 && minutes <= 30) ||
-        (hours === 12 && minutes >= 30) || hours === 13 || hours === 14)) {
+    if (!isWeekend && ((hours === 9) || hours === 10 || (hours === 11 && minutes <= 30) || (hours === 12 && minutes >= 30) || hours === 13 || hours === 14)) {
         japanStatus = { open: true, text: '交易中' };
     }
 
-    // 欧洲市场 - 需要调整时区，这里是基于欧洲夏令时(UTC+2)与北京时间(UTC+8)相差6小时计算
-    // 英国股市 (伦敦，北京时间15:00-23:30)
     let ukStatus = { open: false, text: '未开市' };
     if (!isWeekend && ((hours >= 15 && hours < 23) || (hours === 23 && minutes <= 30))) {
         ukStatus = { open: true, text: '交易中' };
     }
 
-    // 德国股市 (法兰克福，北京时间15:00-23:30)
-    let germanStatus = { open: false, text: '未开市' };
-    if (!isWeekend && ((hours >= 15 && hours < 23) || (hours === 23 && minutes <= 30))) {
-        germanStatus = { open: true, text: '交易中' };
-    }
-
-    // 法国股市 (巴黎，北京时间15:00-23:30)
-    let franceStatus = { open: false, text: '未开市' };
-    if (!isWeekend && ((hours >= 15 && hours < 23) || (hours === 23 && minutes <= 30))) {
-        franceStatus = { open: true, text: '交易中' };
-    }
-
-    // 美洲市场
-    // 美股状态 (纽约，北京时间21:30-4:00)
     let usStatus = { open: false, text: '未开市' };
     if ((hours >= 21 && minutes >= 30) || hours >= 22 || hours < 4) {
-        // 检查美股的工作日 (当北京时间是周六早上，美国还是周五)
         const usDay = hours < 12 ? (weekday === 6 ? 5 : weekday - 1) : weekday;
-        if (usDay !== 0 && usDay !== 6) {
-            usStatus = { open: true, text: '交易中' };
-        }
+        if (usDay !== 0 && usDay !== 6) usStatus = { open: true, text: '交易中' };
     }
-
-    // 纳斯达克与美股相同
     let nasdaqStatus = usStatus;
 
-    // 巴西股市 (圣保罗，北京时间20:30-3:00)
-    let brazilStatus = { open: false, text: '未开市' };
-    if ((hours >= 20 && minutes >= 30) || hours >= 21 || hours < 3) {
-        const brazilDay = hours < 12 ? (weekday === 6 ? 5 : weekday - 1) : weekday;
-        if (brazilDay !== 0 && brazilDay !== 6) {
-            brazilStatus = { open: true, text: '交易中' };
-        }
-    }
-
-    // 更新DOM
     updateMarketStatusUI('china-market', chinaStatus);
     updateMarketStatusUI('hk-market', hkStatus);
-    updateMarketStatusUI('taiwan-market', taiwanStatus);
     updateMarketStatusUI('japan-market', japanStatus);
-
     updateMarketStatusUI('uk-market', ukStatus);
-    updateMarketStatusUI('german-market', germanStatus);
-    updateMarketStatusUI('france-market', franceStatus);
-
     updateMarketStatusUI('us-market', usStatus);
     updateMarketStatusUI('nasdaq-market', nasdaqStatus);
-    updateMarketStatusUI('brazil-market', brazilStatus);
 }
 
-// 更新市场状态UI
 function updateMarketStatusUI(elementId, status) {
     const element = $(`#${elementId}`);
     const iconElement = element.find('i');
     const textElement = element.find('.status-text');
-
-    if (status.open) {
-        iconElement.removeClass('status-closed').addClass('status-open');
-    } else {
-        iconElement.removeClass('status-open').addClass('status-closed');
-    }
-
+    iconElement.removeClass('status-closed status-open').addClass(status.open ? 'status-open' : 'status-closed');
     textElement.text(status.text);
 }
 
-// 更新倒计时
 function updateRefreshCountdown() {
     refreshCountdown--;
-
-    if (refreshCountdown <= 0) {
-        // 重新加载页面
-        window.location.reload();
-        return;
-    }
-
+    if (refreshCountdown <= 0) { window.location.reload(); return; }
     const minutes = Math.floor(refreshCountdown / 60);
     const seconds = refreshCountdown % 60;
     $('#refresh-time').text(`刷新: ${minutes}:${seconds < 10 ? '0' + seconds : seconds}`);
 }
 
-// 更新当前时间
 function updateCurrentTime() {
     const now = new Date();
     const timeString = now.toLocaleTimeString('zh-CN', { hour12: false });
     $('#current-time span').text(timeString);
 }
 
-// 启动滚动新闻
-function startTickerNews() {
-    $.ajax({
-        url: '/api/latest_news',
-        method: 'GET',
-        data: {
-            days: 1,
-            limit: 10
-        },
-        success: function(response) {
-            if (response.success && response.news && response.news.length > 0) {
-                displayTickerNews(response.news);
-            } else {
-                $('#ticker-container .ticker-wrapper').html('<div class="ticker-item">暂无最新消息</div>');
-            }
-        },
-        error: function(err) {
-            console.error('获取滚动新闻失败:', err);
-            $('#ticker-container .ticker-wrapper').html('<div class="ticker-item">获取最新消息失败</div>');
-        }
-    });
-}
-
-// 显示滚动新闻
-function displayTickerNews(newsList) {
-    if (newsList.length === 0) {
-        $('#ticker-container .ticker-wrapper').html('<div class="ticker-item">暂无最新消息</div>');
-        return;
-    }
-
-    let tickerItems = '';
-
-    newsList.forEach(news => {
-        tickerItems += `<div class="ticker-item">${news.content || ''}</div>`;
-    });
-
-    $('#ticker-container .ticker-wrapper').html(tickerItems);
-
-    // 启动滚动效果
-    const tickerWidth = $('#ticker-container').width();
-    const wrapper = $('#ticker-container .ticker-wrapper');
-
-    wrapper.width(tickerWidth * 2);
-    wrapper.css('animation', 'ticker 30s linear infinite');
-}
 </script>
 {% endblock %}

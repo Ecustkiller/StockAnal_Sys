@@ -209,25 +209,23 @@ class CapitalFlowAnalyzer:
 
             # 尝试从akshare获取数据
             try:
-                # For industry sectors (using 东方财富 interface)
-                stocks = ak.stock_board_industry_cons_em(symbol=sector)
+                # 使用 Tushare 获取行业成分股（替代东方财富接口，避免反爬）
+                from tushare_industry_helper import get_industry_stocks_ts
+                stocks_list = get_industry_stocks_ts(sector, with_market_data=True)
 
-                # 提取股票列表
-                if not stocks.empty and '代码' in stocks.columns:
+                if stocks_list:
                     result = []
-                    for _, row in stocks.iterrows():
+                    for item in stocks_list:
                         try:
-                            item = {
-                                "code": row.get("代码", ""),
-                                "name": row.get("名称", ""),
-                                "price": float(row.get("最新价", 0)),
-                                "change_percent": float(row.get("涨跌幅", 0)) if "涨跌幅" in row else 0,
-                                "main_net_inflow": 0,  # We'll get this data separately if needed
-                                "main_net_inflow_percent": 0  # We'll get this data separately if needed
-                            }
-                            result.append(item)
+                            result.append({
+                                "code": item.get("code", ""),
+                                "name": item.get("name", ""),
+                                "price": float(item.get("price", 0)),
+                                "change_percent": float(item.get("change", 0)),
+                                "main_net_inflow": 0,
+                                "main_net_inflow_percent": 0
+                            })
                         except Exception as e:
-                            # self.logger.warning(f"Error processing row in sector stocks: {str(e)}")
                             continue
 
                     # 缓存结果

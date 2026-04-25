@@ -1,0 +1,608 @@
+{% extends "layout.html" %}
+
+{% block title %}自选股管理 - 智能分析系统{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <!-- 顶部概览 -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4 class="mb-0"><i class="fas fa-star text-warning"></i> 自选股管理</h4>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary me-2" onclick="refreshRealtime()">
+                        <i class="fas fa-sync-alt"></i> 刷新行情
+                    </button>
+                    <button class="btn btn-sm btn-outline-success me-2" onclick="batchScore()">
+                        <i class="fas fa-chart-bar"></i> 批量评分
+                    </button>
+                    <button class="btn btn-sm btn-primary" onclick="showAddStockModal()">
+                        <i class="fas fa-plus"></i> 添加股票
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 概览卡片 -->
+    <div class="row mb-3" id="overview-cards">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">分组数</h6>
+                    <h3 class="text-primary" id="total-groups">0</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">自选股数</h6>
+                    <h3 class="text-success" id="total-stocks">0</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">今日上涨</h6>
+                    <h3 class="text-danger" id="total-up">-</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">今日下跌</h6>
+                    <h3 class="text-success" id="total-down">-</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- 左侧分组列表 -->
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <strong><i class="fas fa-folder"></i> 分组管理</strong>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showCreateGroupModal()">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <div class="list-group list-group-flush" id="group-list">
+                    <a href="#" class="list-group-item list-group-item-action active" data-group-id="all" onclick="selectGroup('all')">
+                        <i class="fas fa-list"></i> 全部自选
+                        <span class="badge bg-primary float-end" id="badge-all">0</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧股票列表 -->
+        <div class="col-md-9">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <strong id="current-group-name"><i class="fas fa-table"></i> 全部自选</strong>
+                    <div class="input-group" style="width:250px;">
+                        <input type="text" class="form-control form-control-sm" id="search-input" placeholder="搜索股票代码/名称">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="searchStocks()"><i class="fas fa-search"></i></button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm mb-0" id="stock-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>代码</th>
+                                    <th>名称</th>
+                                    <th>现价</th>
+                                    <th>涨跌幅</th>
+                                    <th>成本价</th>
+                                    <th>盈亏</th>
+                                    <th>目标价</th>
+                                    <th>止损价</th>
+                                    <th>分组</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stock-tbody">
+                                <tr><td colspan="10" class="text-center text-muted py-4">
+                                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 批量评分结果区域 -->
+            <div class="card border-0 shadow-sm mt-3 d-none" id="score-card">
+                <div class="card-header bg-white">
+                    <strong><i class="fas fa-chart-bar"></i> 批量评分结果</strong>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>代码</th>
+                                    <th>名称</th>
+                                    <th>综合评分</th>
+                                    <th>建议</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="score-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加股票弹窗 -->
+<div class="modal fade" id="addStockModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus-circle"></i> 添加自选股</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">股票代码 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="add-stock-code" placeholder="如：000001、600519">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">股票名称</label>
+                    <input type="text" class="form-control" id="add-stock-name" placeholder="可选，自动获取">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">所属分组</label>
+                    <select class="form-select" id="add-stock-group"></select>
+                </div>
+                <div class="row">
+                    <div class="col-4">
+                        <label class="form-label">成本价</label>
+                        <input type="number" class="form-control" id="add-cost-price" step="0.01" placeholder="可选">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">目标价</label>
+                        <input type="number" class="form-control" id="add-target-price" step="0.01" placeholder="可选">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">止损价</label>
+                        <input type="number" class="form-control" id="add-stop-loss" step="0.01" placeholder="可选">
+                    </div>
+                </div>
+                <div class="mb-3 mt-3">
+                    <label class="form-label">备注</label>
+                    <textarea class="form-control" id="add-notes" rows="2" placeholder="可选"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="addStock()">添加</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 创建分组弹窗 -->
+<div class="modal fade" id="createGroupModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-folder-plus"></i> 新建分组</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">分组名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="group-name" placeholder="如：核心持仓">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">描述</label>
+                    <input type="text" class="form-control" id="group-desc" placeholder="可选">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">颜色</label>
+                    <input type="color" class="form-control form-control-color" id="group-color" value="#4e73df">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="createGroup()">创建</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑股票弹窗 -->
+<div class="modal fade" id="editStockModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> 编辑自选股</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-stock-id">
+                <div class="mb-3">
+                    <label class="form-label">股票</label>
+                    <input type="text" class="form-control" id="edit-stock-info" disabled>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">所属分组</label>
+                    <select class="form-select" id="edit-stock-group"></select>
+                </div>
+                <div class="row">
+                    <div class="col-4">
+                        <label class="form-label">成本价</label>
+                        <input type="number" class="form-control" id="edit-cost-price" step="0.01">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">目标价</label>
+                        <input type="number" class="form-control" id="edit-target-price" step="0.01">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">止损价</label>
+                        <input type="number" class="form-control" id="edit-stop-loss" step="0.01">
+                    </div>
+                </div>
+                <div class="mb-3 mt-3">
+                    <label class="form-label">备注</label>
+                    <textarea class="form-control" id="edit-notes" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveStockEdit()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentGroupId = 'all';
+let allGroups = [];
+let realtimeData = [];
+
+$(document).ready(function() {
+    loadOverview();
+    loadGroups();
+    refreshRealtime();
+
+    // 回车搜索
+    $('#search-input').on('keypress', function(e) {
+        if (e.which === 13) searchStocks();
+    });
+});
+
+// ==================== 概览 ====================
+function loadOverview() {
+    $.get('/api/watchlist/overview', function(data) {
+        $('#total-groups').text(data.total_groups || 0);
+        $('#total-stocks').text(data.total_stocks || 0);
+    });
+}
+
+// ==================== 分组管理 ====================
+function loadGroups() {
+    $.get('/api/watchlist/groups', function(data) {
+        allGroups = data.groups || [];
+        renderGroupList();
+        updateGroupSelects();
+    });
+}
+
+function renderGroupList() {
+    let html = `<a href="#" class="list-group-item list-group-item-action ${currentGroupId === 'all' ? 'active' : ''}"
+                   data-group-id="all" onclick="selectGroup('all')">
+                    <i class="fas fa-list"></i> 全部自选
+                    <span class="badge bg-primary float-end" id="badge-all">${$('#total-stocks').text()}</span>
+                </a>`;
+    allGroups.forEach(g => {
+        html += `<a href="#" class="list-group-item list-group-item-action ${currentGroupId == g.id ? 'active' : ''}"
+                    data-group-id="${g.id}" onclick="selectGroup(${g.id})">
+                    <i class="fas fa-circle" style="color:${g.color};font-size:8px;"></i> ${g.name}
+                    <span class="badge bg-secondary float-end">${g.stock_count}</span>
+                    <span class="float-end me-2">
+                        <i class="fas fa-trash-alt text-danger" style="font-size:11px;cursor:pointer;"
+                           onclick="event.stopPropagation();deleteGroup(${g.id},'${g.name}')"></i>
+                    </span>
+                </a>`;
+    });
+    $('#group-list').html(html);
+}
+
+function updateGroupSelects() {
+    let options = '';
+    allGroups.forEach(g => {
+        options += `<option value="${g.id}">${g.name}</option>`;
+    });
+    $('#add-stock-group').html(options);
+    $('#edit-stock-group').html(options);
+}
+
+function selectGroup(groupId) {
+    currentGroupId = groupId;
+    renderGroupList();
+    if (groupId === 'all') {
+        $('#current-group-name').html('<i class="fas fa-table"></i> 全部自选');
+    } else {
+        const g = allGroups.find(x => x.id == groupId);
+        $('#current-group-name').html(`<i class="fas fa-circle" style="color:${g?.color}"></i> ${g?.name || '分组'}`);
+    }
+    refreshRealtime();
+}
+
+function showCreateGroupModal() {
+    $('#group-name').val('');
+    $('#group-desc').val('');
+    $('#group-color').val('#4e73df');
+    new bootstrap.Modal('#createGroupModal').show();
+}
+
+function createGroup() {
+    const name = $('#group-name').val().trim();
+    if (!name) { alert('请输入分组名称'); return; }
+    $.ajax({
+        url: '/api/watchlist/groups',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            name: name,
+            description: $('#group-desc').val(),
+            color: $('#group-color').val()
+        }),
+        success: function(data) {
+            if (data.error) { alert(data.error); return; }
+            bootstrap.Modal.getInstance('#createGroupModal').hide();
+            loadGroups();
+            loadOverview();
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || '创建失败'); }
+    });
+}
+
+function deleteGroup(groupId, groupName) {
+    if (!confirm(`确定删除分组"${groupName}"？其中的股票也会被删除。`)) return;
+    $.ajax({
+        url: `/api/watchlist/groups/${groupId}`,
+        method: 'DELETE',
+        success: function(data) {
+            if (data.error) { alert(data.error); return; }
+            if (currentGroupId == groupId) currentGroupId = 'all';
+            loadGroups();
+            loadOverview();
+            refreshRealtime();
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || '删除失败'); }
+    });
+}
+
+// ==================== 股票管理 ====================
+function showAddStockModal() {
+    $('#add-stock-code').val('');
+    $('#add-stock-name').val('');
+    $('#add-cost-price').val('');
+    $('#add-target-price').val('');
+    $('#add-stop-loss').val('');
+    $('#add-notes').val('');
+    if (currentGroupId !== 'all') {
+        $('#add-stock-group').val(currentGroupId);
+    }
+    new bootstrap.Modal('#addStockModal').show();
+}
+
+function addStock() {
+    const code = $('#add-stock-code').val().trim();
+    if (!code) { alert('请输入股票代码'); return; }
+    $.ajax({
+        url: '/api/watchlist/stocks',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            stock_code: code,
+            stock_name: $('#add-stock-name').val().trim(),
+            group_id: parseInt($('#add-stock-group').val()),
+            market_type: 'A',
+            cost_price: parseFloat($('#add-cost-price').val()) || 0,
+            target_price: parseFloat($('#add-target-price').val()) || 0,
+            stop_loss_price: parseFloat($('#add-stop-loss').val()) || 0,
+            notes: $('#add-notes').val()
+        }),
+        success: function(data) {
+            if (data.error) { alert(data.error); return; }
+            bootstrap.Modal.getInstance('#addStockModal').hide();
+            loadGroups();
+            loadOverview();
+            refreshRealtime();
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || '添加失败'); }
+    });
+}
+
+function removeStock(stockId, stockCode) {
+    if (!confirm(`确定移除 ${stockCode}？`)) return;
+    $.ajax({
+        url: `/api/watchlist/stocks/${stockId}`,
+        method: 'DELETE',
+        success: function(data) {
+            if (data.error) { alert(data.error); return; }
+            loadGroups();
+            loadOverview();
+            refreshRealtime();
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || '移除失败'); }
+    });
+}
+
+function showEditModal(stock) {
+    $('#edit-stock-id').val(stock.id);
+    $('#edit-stock-info').val(`${stock.stock_code} ${stock.stock_name}`);
+    $('#edit-stock-group').val(stock.group_id);
+    $('#edit-cost-price').val(stock.cost_price || '');
+    $('#edit-target-price').val(stock.target_price || '');
+    $('#edit-stop-loss').val(stock.stop_loss_price || '');
+    $('#edit-notes').val(stock.notes || '');
+    new bootstrap.Modal('#editStockModal').show();
+}
+
+function saveStockEdit() {
+    const stockId = $('#edit-stock-id').val();
+    $.ajax({
+        url: `/api/watchlist/stocks/${stockId}`,
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            group_id: parseInt($('#edit-stock-group').val()),
+            cost_price: parseFloat($('#edit-cost-price').val()) || 0,
+            target_price: parseFloat($('#edit-target-price').val()) || 0,
+            stop_loss_price: parseFloat($('#edit-stop-loss').val()) || 0,
+            notes: $('#edit-notes').val()
+        }),
+        success: function(data) {
+            if (data.error) { alert(data.error); return; }
+            bootstrap.Modal.getInstance('#editStockModal').hide();
+            loadGroups();
+            refreshRealtime();
+        },
+        error: function(xhr) { alert(xhr.responseJSON?.error || '保存失败'); }
+    });
+}
+
+// ==================== 实时行情 ====================
+function refreshRealtime() {
+    const groupParam = currentGroupId !== 'all' ? `?group_id=${currentGroupId}` : '';
+    $('#stock-tbody').html('<tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-spinner fa-spin"></i> 加载行情中...</td></tr>');
+
+    $.get(`/api/watchlist/realtime${groupParam}`, function(data) {
+        realtimeData = data.stocks || [];
+        renderStockTable(realtimeData);
+        updateUpDown(realtimeData);
+    }).fail(function() {
+        // 如果实时行情获取失败，至少显示静态列表
+        const groupParam2 = currentGroupId !== 'all' ? currentGroupId : '';
+        if (groupParam2) {
+            $.get(`/api/watchlist/group/${groupParam2}/stocks`, function(data) {
+                renderStockTable(data.stocks || []);
+            });
+        } else {
+            $.get('/api/watchlist/all_stocks', function(data) {
+                renderStockTable(data.stocks || []);
+            });
+        }
+    });
+}
+
+function updateUpDown(stocks) {
+    let up = 0, down = 0;
+    stocks.forEach(s => {
+        if (s.change_pct > 0) up++;
+        else if (s.change_pct < 0) down++;
+    });
+    $('#total-up').text(up);
+    $('#total-down').text(down);
+}
+
+function renderStockTable(stocks) {
+    if (!stocks || stocks.length === 0) {
+        $('#stock-tbody').html('<tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-inbox"></i> 暂无自选股，点击右上角"添加股票"开始</td></tr>');
+        return;
+    }
+
+    let html = '';
+    stocks.forEach(s => {
+        const priceColor = (s.change_pct > 0) ? 'text-danger' : (s.change_pct < 0) ? 'text-success' : '';
+        const changePct = s.change_pct != null ? `${s.change_pct > 0 ? '+' : ''}${s.change_pct.toFixed(2)}%` : '-';
+        const currentPrice = s.current_price != null ? s.current_price.toFixed(2) : '-';
+        const costPrice = s.cost_price > 0 ? s.cost_price.toFixed(2) : '-';
+        const targetPrice = s.target_price > 0 ? s.target_price.toFixed(2) : '-';
+        const stopLoss = s.stop_loss_price > 0 ? s.stop_loss_price.toFixed(2) : '-';
+
+        let profitHtml = '-';
+        if (s.profit_pct != null) {
+            const pColor = s.profit_pct >= 0 ? 'text-danger' : 'text-success';
+            profitHtml = `<span class="${pColor}">${s.profit_pct > 0 ? '+' : ''}${s.profit_pct.toFixed(2)}%</span>`;
+        }
+
+        // 触及目标/止损标记
+        let alertBadge = '';
+        if (s.hit_target) alertBadge += '<span class="badge bg-danger ms-1" title="触及目标价">目标</span>';
+        if (s.hit_stop_loss) alertBadge += '<span class="badge bg-warning ms-1" title="触及止损价">止损</span>';
+
+        const stockData = JSON.stringify(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+        html += `<tr>
+            <td><a href="/stock_detail/${s.stock_code}" class="text-decoration-none fw-bold">${s.stock_code}</a></td>
+            <td>${s.stock_name || '-'}${alertBadge}</td>
+            <td class="${priceColor} fw-bold">${currentPrice}</td>
+            <td class="${priceColor}">${changePct}</td>
+            <td>${costPrice}</td>
+            <td>${profitHtml}</td>
+            <td>${targetPrice}</td>
+            <td>${stopLoss}</td>
+            <td><small class="text-muted">${s.group_name || '-'}</small></td>
+            <td>
+                <div class="btn-group btn-group-sm">
+                    <a href="/stock_detail/${s.stock_code}" class="btn btn-outline-primary btn-sm" title="详情"><i class="fas fa-chart-line"></i></a>
+                    <button class="btn btn-outline-secondary btn-sm" title="编辑" onclick='showEditModal(${JSON.stringify({id:s.id,stock_code:s.stock_code,stock_name:s.stock_name,group_id:s.group_id,cost_price:s.cost_price,target_price:s.target_price,stop_loss_price:s.stop_loss_price,notes:s.notes})})'><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-outline-danger btn-sm" title="移除" onclick="removeStock(${s.id},'${s.stock_code}')"><i class="fas fa-trash"></i></button>
+                </div>
+            </td>
+        </tr>`;
+    });
+    $('#stock-tbody').html(html);
+}
+
+// ==================== 搜索 ====================
+function searchStocks() {
+    const keyword = $('#search-input').val().trim();
+    if (!keyword) {
+        refreshRealtime();
+        return;
+    }
+    // 前端过滤
+    const filtered = realtimeData.filter(s =>
+        s.stock_code.includes(keyword) || (s.stock_name && s.stock_name.includes(keyword))
+    );
+    renderStockTable(filtered);
+}
+
+// ==================== 批量评分 ====================
+function batchScore() {
+    const groupParam = currentGroupId !== 'all' ? `?group_id=${currentGroupId}` : '';
+    $('#score-card').removeClass('d-none');
+    $('#score-tbody').html('<tr><td colspan="5" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> 评分计算中，请稍候...</td></tr>');
+
+    $.get(`/api/watchlist/batch_score${groupParam}`, function(data) {
+        const scores = data.scores || [];
+        if (scores.length === 0) {
+            $('#score-tbody').html('<tr><td colspan="5" class="text-center text-muted py-3">暂无评分数据</td></tr>');
+            return;
+        }
+        let html = '';
+        scores.forEach(s => {
+            const scoreColor = s.total_score >= 70 ? 'text-danger' : s.total_score >= 50 ? 'text-warning' : 'text-success';
+            const recBadge = s.recommendation === '强烈推荐' ? 'bg-danger' :
+                             s.recommendation === '推荐' ? 'bg-warning' :
+                             s.recommendation === '观望' ? 'bg-secondary' : 'bg-success';
+            html += `<tr>
+                <td><a href="/stock_detail/${s.stock_code}" class="text-decoration-none">${s.stock_code}</a></td>
+                <td>${s.stock_name || '-'}</td>
+                <td class="${scoreColor} fw-bold">${s.total_score?.toFixed(1) || '-'}</td>
+                <td><span class="badge ${recBadge}">${s.recommendation || '-'}</span></td>
+                <td><a href="/stock_detail/${s.stock_code}" class="btn btn-sm btn-outline-primary">详情</a></td>
+            </tr>`;
+        });
+        $('#score-tbody').html(html);
+    }).fail(function() {
+        $('#score-tbody').html('<tr><td colspan="5" class="text-center text-danger py-3">评分失败</td></tr>');
+    });
+}
+</script>
+{% endblock %}

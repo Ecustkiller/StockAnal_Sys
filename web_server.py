@@ -34,6 +34,26 @@ from stock_qa import StockQA
 from risk_monitor import RiskMonitor
 from index_industry_analyzer import IndexIndustryAnalyzer
 from news_fetcher import news_fetcher, start_news_scheduler
+from news_stock_linker import get_linker as get_news_linker
+from market_sentiment_api import get_market_sentiment_summary, get_hot_sectors
+from structured_report_generator import StructuredReportGenerator
+from pattern_recognizer import PatternRecognizer
+from industry_comparator import IndustryComparator
+from multi_factor_selector import MultiFactorSelector
+from watchlist_manager import WatchlistManager
+from alert_manager import AlertManager
+from portfolio_manager import PortfolioManager
+from daily_briefing import DailyBriefing
+
+# 导入 Claw 评分系统 Blueprint
+try:
+    from claw_routes import claw_bp, start_auto_sync
+    CLAW_AVAILABLE = True
+    print("✅ Claw 评分系统 Blueprint 已加载")
+except ImportError as e:
+    CLAW_AVAILABLE = False
+    start_auto_sync = None
+    print(f"⚠️ Claw 评分系统不可用: {e}")
 
 # 加载环境变量
 load_dotenv()
@@ -81,6 +101,11 @@ cache.init_app(app)
 
 app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
 
+# 注册 Claw 评分系统 Blueprint
+if CLAW_AVAILABLE:
+    app.register_blueprint(claw_bp)
+    print("✅ Claw 评分系统路由已注册 (前缀: /claw)")
+
 # 确保全局变量在重新加载时不会丢失
 if 'analyzer' not in globals():
     try:
@@ -100,6 +125,14 @@ stock_qa = StockQA(analyzer, os.getenv('OPENAI_API_KEY'), os.getenv('OPENAI_API_
 risk_monitor = RiskMonitor(analyzer)
 index_industry_analyzer = IndexIndustryAnalyzer(analyzer)
 industry_analyzer = IndustryAnalyzer()
+watchlist_manager = WatchlistManager(analyzer)
+watchlist_manager.ensure_default_group()
+alert_manager = AlertManager(analyzer)
+alert_manager.start_scheduler(1800)  # 30分钟扫描一次
+portfolio_manager = PortfolioManager(analyzer)
+portfolio_manager.ensure_default_account()
+daily_briefing = DailyBriefing(analyzer)
+daily_briefing.start_scheduler()
 
 start_news_scheduler()
 
@@ -125,14 +158,12 @@ app.logger.addHandler(handler)
 
 # 扩展任务管理系统以支持不同类型的任务
 task_types = {
-    'scan': 'market_scan',  # 市场扫描任务
     'analysis': 'stock_analysis'  # 个股分析任务
 }
 
 # 任务数据存储
 tasks = {
-    'market_scan': {},  # 原来的scan_tasks
-    'stock_analysis': {}  # 新的个股分析任务
+    'stock_analysis': {}  # 个股分析任务
 }
 
 
@@ -185,9 +216,7 @@ def get_or_create_task(task_type, **params):
     return task_id, task, True
 
 
-# 添加到web_server.py顶部
 # 任务管理系统
-scan_tasks = {}  # 存储扫描任务的状态和结果
 task_lock = threading.Lock()  # 用于线程安全操作
 
 # 任务状态常量
@@ -201,21 +230,6 @@ def generate_task_id():
     """生成唯一的任务ID"""
     import uuid
     return str(uuid.uuid4())
-
-
-def start_market_scan_task_status(task_id, status, progress=None, result=None, error=None):
-    """更新任务状态 - 保持原有签名"""
-    with task_lock:
-        if task_id in scan_tasks:
-            task = scan_tasks[task_id]
-            task['status'] = status
-            if progress is not None:
-                task['progress'] = progress
-            if result is not None:
-                task['result'] = result
-            if error is not None:
-                task['error'] = error
-            task['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 
 def update_task_status(task_type, task_id, status, progress=None, result=None, error=None):
@@ -517,9 +531,9 @@ def portfolio():
     return render_template('portfolio.html')
 
 
-@app.route('/market_scan')
-def market_scan():
-    return render_template('market_scan.html')
+@app.route('/watchlist')
+def watchlist_page():
+    return render_template('watchlist.html')
 
 
 # 基本面分析页面
@@ -556,6 +570,26 @@ def qa_page():
 @app.route('/industry_analysis')
 def industry_analysis():
     return render_template('industry_analysis.html')
+
+# 多模型分析页面
+@app.route('/multi_model_analysis')
+def multi_model_analysis_page():
+    return render_template('multi_model_analysis.html')
+
+# AI辩论分析页面
+@app.route('/debate_analysis')
+def debate_analysis_page():
+    return render_template('debate_analysis.html')
+
+# 增强版AI辩论分析页面
+@app.route('/enhanced_debate')
+def enhanced_debate_page():
+    return render_template('enhanced_debate.html')
+
+@app.route('/claw_score')
+def claw_score_page():
+    """Claw A股量化评分系统页面"""
+    return render_template('claw_score.html')
 
 
 def make_cache_key_with_stock():
@@ -697,6 +731,196 @@ def cancel_analysis(task_id):
 
 
 # 保留原有API用于向后兼容
+@app.route('/api/quick_analysis', methods=['POST'])
+def quick_analysis():
+    """
+    快速分析API - 纯代码计算，不依赖AI，<3秒返回
+    返回8维度评分 + 结构化分析报告
+    """
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        market_type = data.get('market_type', 'A')
+
+        if not stock_code:
+            return custom_jsonify({'error': '请输入股票代码'}), 400
+
+        start_time = time.time()
+        current_analyzer = get_analyzer()
+
+        # 1. 获取股票数据和技术指标
+        df = current_analyzer.get_stock_data(stock_code, market_type)
+        df = current_analyzer.calculate_indicators(df)
+
+        # 2. 计算8维度综合评分
+        score = current_analyzer.calculate_score(df, market_type, stock_code)
+        score_details = getattr(current_analyzer, 'score_details', {'total': score})
+
+        # 3. 获取股票信息
+        stock_info = current_analyzer.get_stock_info(stock_code)
+
+        # 4. 获取增强数据（用于报告生成）
+        enhanced_data = {}
+        try:
+            from enhanced_data_collector import get_collector, ENHANCED_COLLECTOR_AVAILABLE
+            if ENHANCED_COLLECTOR_AVAILABLE:
+                collector = get_collector()
+                enhanced_data = collector.collect_comprehensive_data(stock_code, market_type)
+        except Exception as e:
+            app.logger.warning(f"快速分析-增强数据收集失败: {e}")
+
+        # 5. 获取最新价格数据
+        latest = df.iloc[-1]
+        prev = df.iloc[-2] if len(df) > 1 else latest
+        price_data = {
+            'current_price': float(latest['close']),
+            'price_change': float((latest['close'] - prev['close']) / prev['close'] * 100),
+            'high': float(latest['high']),
+            'low': float(latest['low']),
+            'volume': float(latest['volume']),
+        }
+
+        # 6. 技术分析数据
+        technical_analysis = {
+            'ma5': float(latest['MA5']),
+            'ma20': float(latest['MA20']),
+            'ma60': float(latest['MA60']),
+            'rsi': float(latest['RSI']),
+            'macd': float(latest['MACD']),
+            'signal': float(latest['Signal']),
+            'bb_upper': float(latest['BB_upper']),
+            'bb_lower': float(latest['BB_lower']),
+        }
+
+        # 7. 生成结构化报告
+        report_gen = StructuredReportGenerator()
+        structured_report = report_gen.generate_report(
+            score_details=score_details,
+            enhanced_data=enhanced_data,
+            stock_info=stock_info,
+            price_data=price_data,
+            technical_analysis=technical_analysis
+        )
+
+        # 8. 技术形态识别
+        pattern_result = {}
+        try:
+            recognizer = PatternRecognizer()
+            pattern_result = recognizer.analyze(df)
+        except Exception as e:
+            app.logger.warning(f"形态识别失败: {e}")
+            pattern_result = {'patterns': [], 'summary': '形态识别暂不可用', 'dominant_signal': 'neutral', 'signal_strength': 0}
+
+        elapsed = time.time() - start_time
+        app.logger.info(f"快速分析完成: {stock_code}，耗时 {elapsed:.2f}秒")
+
+        return custom_jsonify({
+            'result': {
+                'basic_info': {
+                    'stock_code': stock_code,
+                    'stock_name': stock_info.get('股票名称', '未知'),
+                    'industry': stock_info.get('行业', '未知'),
+                    'analysis_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                },
+                'price_data': price_data,
+                'technical_analysis': technical_analysis,
+                'comprehensive_scores': score_details,
+                'structured_report': structured_report,
+                'pattern_analysis': pattern_result,
+                'analysis_type': 'quick',
+                'elapsed_seconds': round(elapsed, 2)
+            }
+        })
+
+    except Exception as e:
+        app.logger.error(f"快速分析出错: {traceback.format_exc()}")
+        return custom_jsonify({'error': f'快速分析出错: {str(e)}'}), 500
+
+
+@app.route('/api/pattern_analysis', methods=['POST'])
+def pattern_analysis():
+    """独立的技术形态识别API"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        market_type = data.get('market_type', 'A')
+
+        if not stock_code:
+            return custom_jsonify({'error': '请输入股票代码'}), 400
+
+        current_analyzer = get_analyzer()
+        df = current_analyzer.get_stock_data(stock_code, market_type)
+        df = current_analyzer.calculate_indicators(df)
+
+        recognizer = PatternRecognizer()
+        result = recognizer.analyze(df)
+
+        return custom_jsonify({'result': result})
+
+    except Exception as e:
+        app.logger.error(f"形态识别出错: {traceback.format_exc()}")
+        return custom_jsonify({'error': f'形态识别出错: {str(e)}'}), 500
+
+
+@app.route('/api/multi_factor_select', methods=['POST'])
+def multi_factor_select():
+    """多因子选股API"""
+    try:
+        data = request.json or {}
+        strategy = data.get('strategy', 'balanced')
+        custom_weights = data.get('custom_weights')
+        filters = data.get('filters')
+        top_n = min(data.get('top_n', 20), 50)
+
+        selector = MultiFactorSelector()
+        result = selector.select_stocks(
+            strategy=strategy,
+            custom_weights=custom_weights,
+            filters=filters,
+            top_n=top_n
+        )
+
+        return custom_jsonify({'result': result})
+
+    except Exception as e:
+        app.logger.error(f"多因子选股出错: {traceback.format_exc()}")
+        return custom_jsonify({'error': f'多因子选股出错: {str(e)}'}), 500
+
+
+@app.route('/api/multi_factor_strategies', methods=['GET'])
+def multi_factor_strategies():
+    """获取多因子选股预设策略列表"""
+    try:
+        from multi_factor_selector import STRATEGY_TEMPLATES
+        return custom_jsonify({'strategies': STRATEGY_TEMPLATES})
+    except Exception as e:
+        return custom_jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/industry_compare', methods=['POST'])
+def industry_compare():
+    """同行业横向对比API - 5维度雷达图对比"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        top_n = data.get('top_n', 10)
+
+        if not stock_code:
+            return custom_jsonify({'error': '请输入股票代码'}), 400
+
+        comparator = IndustryComparator()
+        result = comparator.compare(stock_code, top_n=top_n)
+
+        if result.get('error'):
+            return custom_jsonify({'error': result['error']}), 400
+
+        return custom_jsonify({'result': result})
+
+    except Exception as e:
+        app.logger.error(f"同行业对比出错: {traceback.format_exc()}")
+        return custom_jsonify({'error': f'同行业对比出错: {str(e)}'}), 500
+
+
 @app.route('/api/enhanced_analysis', methods=['POST'])
 def enhanced_analysis():
     """原增强分析API的向后兼容版本"""
@@ -860,294 +1084,7 @@ def get_stock_data():
         return custom_jsonify({'error': str(e)}), 500
 
 
-# @app.route('/api/market_scan', methods=['POST'])
-# def api_market_scan():
-#     try:
-#         data = request.json
-#         stock_list = data.get('stock_list', [])
-#         min_score = data.get('min_score', 60)
-#         market_type = data.get('market_type', 'A')
-
-#         if not stock_list:
-#             return jsonify({'error': '请提供股票列表'}), 400
-
-#         # 限制股票数量，避免过长处理时间
-#         if len(stock_list) > 100:
-#             app.logger.warning(f"股票列表过长 ({len(stock_list)}只)，截取前100只")
-#             stock_list = stock_list[:100]
-
-#         # 执行市场扫描
-#         app.logger.info(f"开始扫描 {len(stock_list)} 只股票，最低分数: {min_score}")
-
-#         # 使用线程池优化处理
-#         results = []
-#         max_workers = min(10, len(stock_list))  # 最多10个工作线程
-
-#         # 设置较长的超时时间
-#         timeout = 300  # 5分钟
-
-#         def scan_thread():
-#             try:
-#                 return analyzer.scan_market(stock_list, min_score, market_type)
-#             except Exception as e:
-#                 app.logger.error(f"扫描线程出错: {str(e)}")
-#                 return []
-
-#         thread = threading.Thread(target=lambda: results.append(scan_thread()))
-#         thread.start()
-#         thread.join(timeout)
-
-#         if thread.is_alive():
-#             app.logger.error(f"市场扫描超时，已扫描 {len(stock_list)} 只股票超过 {timeout} 秒")
-#             return custom_jsonify({'error': '扫描超时，请减少股票数量或稍后再试'}), 504
-
-#         if not results or not results[0]:
-#             app.logger.warning("扫描结果为空")
-#             return custom_jsonify({'results': []})
-
-#         scan_results = results[0]
-#         app.logger.info(f"扫描完成，找到 {len(scan_results)} 只符合条件的股票")
-
-#         # 使用自定义JSON格式处理NumPy数据类型
-#         return custom_jsonify({'results': scan_results})
-#     except Exception as e:
-#         app.logger.error(f"执行市场扫描时出错: {traceback.format_exc()}")
-#         return custom_jsonify({'error': str(e)}), 500
-
-@app.route('/api/start_market_scan', methods=['POST'])
-def start_market_scan():
-    """启动市场扫描任务"""
-    try:
-        data = request.json
-        stock_list = data.get('stock_list', [])
-        min_score = data.get('min_score', 60)
-        market_type = data.get('market_type', 'A')
-
-        if not stock_list:
-            return jsonify({'error': '请提供股票列表'}), 400
-
-        # 限制股票数量，避免过长处理时间
-        if len(stock_list) > 100:
-            app.logger.warning(f"股票列表过长 ({len(stock_list)}只)，截取前100只")
-            stock_list = stock_list[:100]
-
-        # 创建新任务
-        task_id = generate_task_id()
-        task = {
-            'id': task_id,
-            'status': TASK_PENDING,
-            'progress': 0,
-            'total': len(stock_list),
-            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'params': {
-                'stock_list': stock_list,
-                'min_score': min_score,
-                'market_type': market_type
-            }
-        }
-
-        with task_lock:
-            scan_tasks[task_id] = task
-
-        # 启动后台线程执行扫描
-        def run_scan():
-            try:
-                start_market_scan_task_status(task_id, TASK_RUNNING)
-
-                # 执行分批处理
-                results = []
-                total = len(stock_list)
-                batch_size = 10
-
-                for i in range(0, total, batch_size):
-                    if task_id not in scan_tasks or scan_tasks[task_id]['status'] != TASK_RUNNING:
-                        # 任务被取消
-                        app.logger.info(f"扫描任务 {task_id} 被取消")
-                        return
-
-                    batch = stock_list[i:i + batch_size]
-                    batch_results = []
-
-                    for stock_code in batch:
-                        try:
-                            report = analyzer.quick_analyze_stock(stock_code, market_type)
-                            if report['score'] >= min_score:
-                                batch_results.append(report)
-                        except Exception as e:
-                            app.logger.error(f"分析股票 {stock_code} 时出错: {str(e)}")
-                            continue
-
-                    results.extend(batch_results)
-
-                    # 更新进度
-                    progress = min(100, int((i + len(batch)) / total * 100))
-                    start_market_scan_task_status(task_id, TASK_RUNNING, progress=progress)
-
-                # 按得分排序
-                results.sort(key=lambda x: x['score'], reverse=True)
-
-                # 更新任务状态为完成
-                start_market_scan_task_status(task_id, TASK_COMPLETED, progress=100, result=results)
-                app.logger.info(f"扫描任务 {task_id} 完成，找到 {len(results)} 只符合条件的股票")
-
-            except Exception as e:
-                app.logger.error(f"扫描任务 {task_id} 失败: {str(e)}")
-                app.logger.error(traceback.format_exc())
-                start_market_scan_task_status(task_id, TASK_FAILED, error=str(e))
-
-        # 启动后台线程
-        thread = threading.Thread(target=run_scan)
-        thread.daemon = True
-        thread.start()
-
-        return jsonify({
-            'task_id': task_id,
-            'status': 'pending',
-            'message': f'已启动扫描任务，正在处理 {len(stock_list)} 只股票'
-        })
-
-    except Exception as e:
-        app.logger.error(f"启动市场扫描任务时出错: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/scan_status/<task_id>', methods=['GET'])
-def get_scan_status(task_id):
-    """获取扫描任务状态"""
-    with task_lock:
-        if task_id not in scan_tasks:
-            return jsonify({'error': '找不到指定的扫描任务'}), 404
-
-        task = scan_tasks[task_id]
-
-        # 基本状态信息
-        status = {
-            'id': task['id'],
-            'status': task['status'],
-            'progress': task.get('progress', 0),
-            'total': task.get('total', 0),
-            'created_at': task['created_at'],
-            'updated_at': task['updated_at']
-        }
-
-        # 如果任务完成，包含结果
-        if task['status'] == TASK_COMPLETED and 'result' in task:
-            status['result'] = task['result']
-
-        # 如果任务失败，包含错误信息
-        if task['status'] == TASK_FAILED and 'error' in task:
-            status['error'] = task['error']
-
-        return custom_jsonify(status)
-
-
-@app.route('/api/cancel_scan/<task_id>', methods=['POST'])
-def cancel_scan(task_id):
-    """取消扫描任务"""
-    with task_lock:
-        if task_id not in scan_tasks:
-            return jsonify({'error': '找不到指定的扫描任务'}), 404
-
-        task = scan_tasks[task_id]
-
-        if task['status'] in [TASK_COMPLETED, TASK_FAILED]:
-            return jsonify({'message': '任务已完成或失败，无法取消'})
-
-        # 更新状态为失败
-        task['status'] = TASK_FAILED
-        task['error'] = '用户取消任务'
-        task['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        return jsonify({'message': '任务已取消'})
-
-
-@app.route('/api/index_stocks', methods=['GET'])
-def get_index_stocks():
-    """获取指数成分股"""
-    try:
-        import akshare as ak
-        index_code = request.args.get('index_code', '000300')  # 默认沪深300
-
-        # 获取指数成分股
-        app.logger.info(f"获取指数 {index_code} 成分股")
-        if index_code == '000300':
-            # 沪深300成分股
-            stocks = ak.index_stock_cons_weight_csindex(symbol="000300")
-        elif index_code == '000905':
-            # 中证500成分股
-            stocks = ak.index_stock_cons_weight_csindex(symbol="000905")
-        elif index_code == '000852':
-            # 中证1000成分股
-            stocks = ak.index_stock_cons_weight_csindex(symbol="000852")
-        elif index_code == '000001':
-            # 上证指数
-            stocks = ak.index_stock_cons_weight_csindex(symbol="000001")
-        else:
-            return jsonify({'error': '不支持的指数代码'}), 400
-
-        # 提取股票代码列表
-        stock_list = stocks['成分券代码'].tolist() if '成分券代码' in stocks.columns else []
-        app.logger.info(f"找到 {len(stock_list)} 只成分股")
-
-        return jsonify({'stock_list': stock_list})
-    except Exception as e:
-        app.logger.error(f"获取指数成分股时出错: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/industry_stocks', methods=['GET'])
-def get_industry_stocks():
-    """获取行业成分股"""
-    try:
-        import akshare as ak
-        industry = request.args.get('industry', '')
-
-        if not industry:
-            return jsonify({'error': '请提供行业名称'}), 400
-
-        # 获取行业成分股
-        app.logger.info(f"获取 {industry} 行业成分股")
-        stocks = ak.stock_board_industry_cons_em(symbol=industry)
-
-        # 提取股票代码列表
-        stock_list = stocks['代码'].tolist() if '代码' in stocks.columns else []
-        app.logger.info(f"找到 {len(stock_list)} 只 {industry} 行业股票")
-
-        return jsonify({'stock_list': stock_list})
-    except Exception as e:
-        app.logger.error(f"获取行业成分股时出错: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
-
-
-# 添加到web_server.py
-def clean_old_tasks():
-    """清理旧的扫描任务"""
-    with task_lock:
-        now = datetime.now()
-        to_delete = []
-
-        for task_id, task in scan_tasks.items():
-            # 解析更新时间
-            try:
-                updated_at = datetime.strptime(task['updated_at'], '%Y-%m-%d %H:%M:%S')
-                # 如果任务完成或失败且超过1小时，或者任务状态异常且超过3小时，清理它
-                if ((task['status'] in [TASK_COMPLETED, TASK_FAILED] and
-                     (now - updated_at).total_seconds() > 3600) or
-                        ((now - updated_at).total_seconds() > 10800)):
-                    to_delete.append(task_id)
-            except:
-                # 日期解析错误，添加到删除列表
-                to_delete.append(task_id)
-
-        # 删除旧任务
-        for task_id in to_delete:
-            del scan_tasks[task_id]
-
-        return len(to_delete)
-
-
-# 修改 run_task_cleaner 函数，使其每 5 分钟运行一次并在 16:30 左右清理所有缓存
+# 定期运行任务清理，并在每天 16:30 左右清理所有缓存
 def run_task_cleaner():
     """定期运行任务清理，并在每天 16:30 左右清理所有缓存"""
     while True:
@@ -1155,8 +1092,6 @@ def run_task_cleaner():
             now = datetime.now()
             # 判断是否在收盘时间附近（16:25-16:35）
             is_market_close_time = (now.hour == 16 and 25 <= now.minute <= 35)
-
-            cleaned = clean_old_tasks()
 
             # 如果是收盘时间，清理所有缓存
             if is_market_close_time:
@@ -1176,13 +1111,10 @@ def run_task_cleaner():
                             del task_store[task_id]
 
                 app.logger.info("市场收盘时间检测到，已清理所有缓存数据")
-
-            if cleaned > 0:
-                app.logger.info(f"清理了 {cleaned} 个旧的扫描任务")
         except Exception as e:
             app.logger.error(f"任务清理出错: {str(e)}")
 
-        # 每 5 分钟运行一次，而不是每小时
+        # 每 5 分钟运行一次
         time.sleep(600)
 
 
@@ -1202,6 +1134,83 @@ def api_fundamental_analysis():
         return custom_jsonify(result)
     except Exception as e:
         app.logger.error(f"基本面分析出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/comprehensive_fundamental', methods=['POST'])
+def api_comprehensive_fundamental():
+    """全面基本面分析API - 包含现金流、杜邦分析、同行业对比、财务趋势、分红历史"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+
+        result = fundamental_analyzer.get_comprehensive_fundamental(stock_code)
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"全面基本面分析出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cash_flow_analysis', methods=['POST'])
+def api_cash_flow_analysis():
+    """现金流分析API"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+        result = fundamental_analyzer.get_cash_flow_analysis(stock_code)
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"现金流分析出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dupont_analysis', methods=['POST'])
+def api_dupont_analysis():
+    """杜邦分析API"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+        result = fundamental_analyzer.get_dupont_analysis(stock_code)
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"杜邦分析出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/industry_comparison', methods=['POST'])
+def api_industry_comparison():
+    """同行业对比API"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+        result = fundamental_analyzer.get_industry_comparison(stock_code)
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"同行业对比出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dividend_history', methods=['POST'])
+def api_dividend_history():
+    """分红历史API"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+        result = fundamental_analyzer.get_dividend_history(stock_code)
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"分红历史出错: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1376,9 +1385,624 @@ def api_portfolio_risk():
         return jsonify({'error': str(e)}), 500
 
 
+# ==================== 自选股管理API ====================
+
+@app.route('/api/watchlist/groups', methods=['GET'])
+def watchlist_get_groups():
+    """获取所有自选股分组"""
+    try:
+        groups = watchlist_manager.get_groups()
+        return custom_jsonify({'groups': groups})
+    except Exception as e:
+        app.logger.error(f"获取分组失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/groups', methods=['POST'])
+def watchlist_create_group():
+    """创建自选股分组"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        if not name:
+            return jsonify({'error': '分组名称不能为空'}), 400
+        result = watchlist_manager.create_group(
+            name=name,
+            description=data.get('description', ''),
+            color=data.get('color', '#4e73df')
+        )
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"创建分组失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/groups/<int:group_id>', methods=['PUT'])
+def watchlist_update_group(group_id):
+    """更新分组"""
+    try:
+        data = request.json
+        result = watchlist_manager.update_group(group_id, **data)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"更新分组失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/groups/<int:group_id>', methods=['DELETE'])
+def watchlist_delete_group(group_id):
+    """删除分组"""
+    try:
+        result = watchlist_manager.delete_group(group_id)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"删除分组失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/stocks', methods=['POST'])
+def watchlist_add_stock():
+    """添加股票到自选"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code', '').strip()
+        if not stock_code:
+            return jsonify({'error': '股票代码不能为空'}), 400
+        group_id = data.get('group_id')
+        if not group_id:
+            group_id = watchlist_manager.ensure_default_group()
+        result = watchlist_manager.add_stock(
+            group_id=group_id,
+            stock_code=stock_code,
+            stock_name=data.get('stock_name', ''),
+            market_type=data.get('market_type', 'A'),
+            cost_price=data.get('cost_price', 0),
+            target_price=data.get('target_price', 0),
+            stop_loss_price=data.get('stop_loss_price', 0),
+            notes=data.get('notes', '')
+        )
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"添加自选股失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/stocks/<int:stock_id>', methods=['PUT'])
+def watchlist_update_stock(stock_id):
+    """更新自选股信息"""
+    try:
+        data = request.json
+        result = watchlist_manager.update_stock(stock_id, **data)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"更新自选股失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/stocks/<int:stock_id>', methods=['DELETE'])
+def watchlist_remove_stock(stock_id):
+    """移除自选股"""
+    try:
+        result = watchlist_manager.remove_stock(stock_id)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"移除自选股失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/stocks/move', methods=['POST'])
+def watchlist_move_stock():
+    """移动股票到其他分组"""
+    try:
+        data = request.json
+        stock_id = data.get('stock_id')
+        target_group_id = data.get('target_group_id')
+        if not stock_id or not target_group_id:
+            return jsonify({'error': '参数不完整'}), 400
+        result = watchlist_manager.move_stock(stock_id, target_group_id)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"移动自选股失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/group/<int:group_id>/stocks', methods=['GET'])
+def watchlist_get_group_stocks(group_id):
+    """获取分组中的股票列表"""
+    try:
+        stocks = watchlist_manager.get_stocks_by_group(group_id)
+        return custom_jsonify({'stocks': stocks})
+    except Exception as e:
+        app.logger.error(f"获取分组股票失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/all_stocks', methods=['GET'])
+def watchlist_get_all_stocks():
+    """获取所有自选股"""
+    try:
+        stocks = watchlist_manager.get_all_stocks()
+        return custom_jsonify({'stocks': stocks})
+    except Exception as e:
+        app.logger.error(f"获取所有自选股失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/overview', methods=['GET'])
+def watchlist_overview():
+    """获取自选股概览"""
+    try:
+        overview = watchlist_manager.get_overview()
+        return custom_jsonify(overview)
+    except Exception as e:
+        app.logger.error(f"获取概览失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/realtime', methods=['GET'])
+def watchlist_realtime():
+    """批量获取自选股实时行情"""
+    try:
+        group_id = request.args.get('group_id', type=int)
+        results = watchlist_manager.batch_get_realtime(group_id)
+        return custom_jsonify({'stocks': results})
+    except Exception as e:
+        app.logger.error(f"获取实时行情失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/batch_score', methods=['GET'])
+def watchlist_batch_score():
+    """批量快速评分"""
+    try:
+        group_id = request.args.get('group_id', type=int)
+        results = watchlist_manager.batch_quick_score(group_id)
+        return custom_jsonify({'scores': results})
+    except Exception as e:
+        app.logger.error(f"批量评分失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/watchlist/search', methods=['GET'])
+def watchlist_search():
+    """搜索自选股"""
+    try:
+        keyword = request.args.get('keyword', '').strip()
+        if not keyword:
+            return jsonify({'error': '请输入搜索关键词'}), 400
+        results = watchlist_manager.search_stocks(keyword)
+        return custom_jsonify({'stocks': results})
+    except Exception as e:
+        app.logger.error(f"搜索自选股失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 风险预警API ====================
+
+@app.route('/api/alerts/rule_types', methods=['GET'])
+def alert_rule_types():
+    """获取支持的预警规则类型"""
+    try:
+        return custom_jsonify({'rule_types': alert_manager.get_rule_types()})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/rules', methods=['GET'])
+def alert_get_rules():
+    """获取预警规则列表"""
+    try:
+        stock_code = request.args.get('stock_code')
+        active_only = request.args.get('active_only', 'true').lower() == 'true'
+        rules = alert_manager.get_rules(stock_code, active_only)
+        return custom_jsonify({'rules': rules})
+    except Exception as e:
+        app.logger.error(f"获取预警规则失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/rules', methods=['POST'])
+def alert_create_rule():
+    """创建预警规则"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code', '').strip()
+        rule_type = data.get('rule_type', '').strip()
+        if not stock_code or not rule_type:
+            return jsonify({'error': '股票代码和规则类型不能为空'}), 400
+        result = alert_manager.create_rule(
+            stock_code=stock_code,
+            rule_type=rule_type,
+            condition_value=data.get('condition_value', 0),
+            stock_name=data.get('stock_name', ''),
+            description=data.get('description', '')
+        )
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"创建预警规则失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/rules/<int:rule_id>', methods=['PUT'])
+def alert_update_rule(rule_id):
+    """更新预警规则"""
+    try:
+        data = request.json
+        result = alert_manager.update_rule(rule_id, **data)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"更新预警规则失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/rules/<int:rule_id>', methods=['DELETE'])
+def alert_delete_rule(rule_id):
+    """删除预警规则"""
+    try:
+        result = alert_manager.delete_rule(rule_id)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"删除预警规则失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/rules/<int:rule_id>/reset', methods=['POST'])
+def alert_reset_rule(rule_id):
+    """重置规则触发状态"""
+    try:
+        result = alert_manager.reset_rule(rule_id)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"重置规则失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/quick_setup', methods=['POST'])
+def alert_quick_setup():
+    """为股票快速创建一组常用预警规则"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code', '').strip()
+        if not stock_code:
+            return jsonify({'error': '股票代码不能为空'}), 400
+        result = alert_manager.create_watchlist_rules(stock_code, data.get('stock_name', ''))
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"快速创建预警失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/logs', methods=['GET'])
+def alert_get_logs():
+    """获取预警日志"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        unread_only = request.args.get('unread_only', 'false').lower() == 'true'
+        stock_code = request.args.get('stock_code')
+        logs = alert_manager.get_alert_logs(limit, unread_only, stock_code)
+        return custom_jsonify({'logs': logs, 'unread_count': alert_manager.get_unread_count()})
+    except Exception as e:
+        app.logger.error(f"获取预警日志失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/unread_count', methods=['GET'])
+def alert_unread_count():
+    """获取未读预警数量"""
+    try:
+        count = alert_manager.get_unread_count()
+        return custom_jsonify({'unread_count': count})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/mark_read', methods=['POST'])
+def alert_mark_read():
+    """标记预警为已读"""
+    try:
+        data = request.json or {}
+        log_id = data.get('log_id')
+        result = alert_manager.mark_read(log_id)
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"标记已读失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/scan_now', methods=['POST'])
+def alert_scan_now():
+    """立即执行一次预警扫描"""
+    try:
+        count = alert_manager.scan_all_rules()
+        return custom_jsonify({'success': True, 'triggered_count': count})
+    except Exception as e:
+        app.logger.error(f"手动扫描失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alerts/status', methods=['GET'])
+def alert_status():
+    """获取预警系统状态"""
+    try:
+        status = alert_manager.get_status()
+        return custom_jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 投资组合管理API ====================
+
+@app.route('/api/portfolio/accounts', methods=['GET'])
+def portfolio_get_accounts():
+    """获取所有投资组合账户"""
+    try:
+        accounts = portfolio_manager.get_accounts()
+        return custom_jsonify({'accounts': accounts})
+    except Exception as e:
+        app.logger.error(f"获取账户失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/accounts', methods=['POST'])
+def portfolio_create_account():
+    """创建投资组合账户"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        if not name:
+            return jsonify({'error': '账户名称不能为空'}), 400
+        result = portfolio_manager.create_account(
+            name=name,
+            initial_capital=data.get('initial_capital', 0),
+            description=data.get('description', '')
+        )
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"创建账户失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/accounts/<int:account_id>', methods=['DELETE'])
+def portfolio_delete_account(account_id):
+    """删除投资组合账户"""
+    try:
+        result = portfolio_manager.delete_account(account_id)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"删除账户失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/buy', methods=['POST'])
+def portfolio_buy():
+    """买入股票"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code', '').strip()
+        if not stock_code:
+            return jsonify({'error': '股票代码不能为空'}), 400
+        quantity = data.get('quantity', 0)
+        price = data.get('price', 0)
+        if quantity <= 0 or price <= 0:
+            return jsonify({'error': '数量和价格必须大于0'}), 400
+
+        account_id = data.get('account_id')
+        if not account_id:
+            account_id = portfolio_manager.ensure_default_account()
+
+        result = portfolio_manager.buy(
+            account_id=account_id,
+            stock_code=stock_code,
+            quantity=quantity,
+            price=price,
+            stock_name=data.get('stock_name', ''),
+            market_type=data.get('market_type', 'A'),
+            commission=data.get('commission', 0),
+            tax=data.get('tax', 0),
+            notes=data.get('notes', '')
+        )
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"买入失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/sell', methods=['POST'])
+def portfolio_sell():
+    """卖出股票"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code', '').strip()
+        if not stock_code:
+            return jsonify({'error': '股票代码不能为空'}), 400
+        quantity = data.get('quantity', 0)
+        price = data.get('price', 0)
+        if quantity <= 0 or price <= 0:
+            return jsonify({'error': '数量和价格必须大于0'}), 400
+
+        account_id = data.get('account_id')
+        if not account_id:
+            account_id = portfolio_manager.ensure_default_account()
+
+        result = portfolio_manager.sell(
+            account_id=account_id,
+            stock_code=stock_code,
+            quantity=quantity,
+            price=price,
+            commission=data.get('commission', 0),
+            tax=data.get('tax', 0),
+            notes=data.get('notes', '')
+        )
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"卖出失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/holdings/<int:account_id>', methods=['GET'])
+def portfolio_get_holdings(account_id):
+    """获取账户持仓"""
+    try:
+        refresh = request.args.get('refresh', 'true').lower() == 'true'
+        result = portfolio_manager.get_holdings(account_id, refresh_price=refresh)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"获取持仓失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/transactions/<int:account_id>', methods=['GET'])
+def portfolio_get_transactions(account_id):
+    """获取交易记录"""
+    try:
+        limit = request.args.get('limit', 100, type=int)
+        stock_code = request.args.get('stock_code')
+        txs = portfolio_manager.get_transactions(account_id, limit, stock_code)
+        return custom_jsonify({'transactions': txs})
+    except Exception as e:
+        app.logger.error(f"获取交易记录失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/risk_attribution/<int:account_id>', methods=['GET'])
+def portfolio_risk_attribution(account_id):
+    """投资组合风险归因分析"""
+    try:
+        result = portfolio_manager.analyze_risk_attribution(account_id)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"风险归因分析失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/rebalance/<int:account_id>', methods=['POST'])
+def portfolio_rebalance(account_id):
+    """获取再平衡建议"""
+    try:
+        data = request.json or {}
+        target_weights = data.get('target_weights')
+        result = portfolio_manager.get_rebalance_suggestions(account_id, target_weights)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"再平衡建议失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/deposit', methods=['POST'])
+def portfolio_deposit():
+    """入金"""
+    try:
+        data = request.json
+        account_id = data.get('account_id')
+        amount = data.get('amount', 0)
+        if not account_id or amount <= 0:
+            return jsonify({'error': '参数不完整'}), 400
+        result = portfolio_manager.deposit(account_id, amount)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"入金失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/withdraw', methods=['POST'])
+def portfolio_withdraw():
+    """出金"""
+    try:
+        data = request.json
+        account_id = data.get('account_id')
+        amount = data.get('amount', 0)
+        if not account_id or amount <= 0:
+            return jsonify({'error': '参数不完整'}), 400
+        result = portfolio_manager.withdraw(account_id, amount)
+        if 'error' in result:
+            return jsonify(result), 400
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"出金失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 每日市场简报API ====================
+
+@app.route('/api/daily_brief/generate', methods=['POST'])
+def daily_brief_generate():
+    """手动生成每日简报"""
+    try:
+        data = request.json or {}
+        target_date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+        result = daily_briefing.generate_brief(target_date)
+        if 'error' in result:
+            return jsonify(result), 500
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"生成简报失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/daily_brief/<string:brief_date>', methods=['GET'])
+def daily_brief_get(brief_date):
+    """获取指定日期的简报"""
+    try:
+        result = daily_briefing.get_brief(brief_date)
+        if 'error' in result:
+            return jsonify(result), 404
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"获取简报失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/daily_brief/recent', methods=['GET'])
+def daily_brief_recent():
+    """获取最近的简报列表"""
+    try:
+        limit = request.args.get('limit', 7, type=int)
+        briefs = daily_briefing.get_recent_briefs(limit)
+        return custom_jsonify({'briefs': briefs})
+    except Exception as e:
+        app.logger.error(f"获取简报列表失败: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
 # 指数分析路由
-@app.route('/api/index_analysis', methods=['GET'])
-def api_index_analysis():
     try:
         index_code = request.args.get('index_code')
         limit = int(request.args.get('limit', 30))
@@ -1661,16 +2285,176 @@ def get_latest_news():
 
                 news_data = [news for news in news_data if has_keyword(news)]
 
+        # 为新闻关联股票
+        try:
+            linker = get_news_linker()
+            news_data = linker.batch_link_news(news_data)
+        except Exception as link_err:
+            app.logger.warning(f"新闻关联股票失败: {link_err}")
+
         return jsonify({'success': True, 'news': news_data})
     except Exception as e:
         app.logger.error(f"获取最新新闻数据时出错: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== 市场情绪/择时/热点API ====================
+
+@app.route('/api/market_sentiment', methods=['GET'])
+def api_market_sentiment():
+    """获取市场情绪摘要数据（涨跌停/封板率/赚钱效应/仓位建议/择时信号）"""
+    try:
+        result = get_market_sentiment_summary()
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"获取市场情绪数据出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
+
+@app.route('/api/hot_sectors', methods=['GET'])
+def api_hot_sectors():
+    """获取热点板块数据（近3日行业涨幅排名+主线识别）"""
+    try:
+        result = get_hot_sectors()
+        return custom_jsonify(result)
+    except Exception as e:
+        app.logger.error(f"获取热点板块数据出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
+
+# 导入多模型分析器
+from multi_model_analyzer import MultiModelAnalyzer
+from debate_multi_model_analyzer import DebateMultiModelAnalyzer
+from enhanced_debate_analyzer import EnhancedDebateAnalyzer
+
+# 初始化多模型分析器
+multi_model_analyzer = MultiModelAnalyzer()
+debate_analyzer = DebateMultiModelAnalyzer()
+enhanced_analyzer = EnhancedDebateAnalyzer()
+
+# 多模型协作分析API
+@app.route('/api/multi_model_analysis', methods=['POST'])
+def api_multi_model_analysis():
+    """多模型协作分析API"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        market_type = data.get('market_type', 'A')
+        models = data.get('models')  # 可选：指定要使用的模型
+        
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+        
+        app.logger.info(f"开始多模型分析: {stock_code}")
+        
+        # 执行多模型分析
+        result = multi_model_analyzer.multi_model_analysis(
+            stock_code=stock_code, 
+            market_type=market_type,
+            models=models
+        )
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+        
+        return custom_jsonify(result)
+        
+    except Exception as e:
+        app.logger.error(f"多模型分析出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/available_models', methods=['GET'])
+def api_available_models():
+    """获取可用模型列表"""
+    try:
+        return jsonify({
+            'models': multi_model_analyzer.available_models,
+            'total_count': len(multi_model_analyzer.available_models),
+            'model_companies': debate_analyzer.available_models
+        })
+    except Exception as e:
+        app.logger.error(f"获取模型列表出错: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# 带辩论机制的多模型分析API
+@app.route('/api/debate_analysis', methods=['POST'])
+def api_debate_analysis():
+    """带辩论机制的多模型分析API"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        market_type = data.get('market_type', 'A')
+        models = data.get('models')  # 可选：指定要使用的模型
+        
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+        
+        app.logger.info(f"开始带辩论机制的多模型分析: {stock_code}")
+        
+        # 执行带辩论机制的分析
+        result = debate_analyzer.debate_analysis(
+            stock_code=stock_code, 
+            market_type=market_type,
+            models=models
+        )
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+        
+        return custom_jsonify(result)
+        
+    except Exception as e:
+        app.logger.error(f"辩论分析出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+# 增强版辩论分析API - 基于FinGenius思想优化
+@app.route('/api/enhanced_debate_analysis', methods=['POST'])
+def api_enhanced_debate_analysis():
+    """增强版辩论分析API - 严格两阶段分离"""
+    try:
+        data = request.json
+        stock_code = data.get('stock_code')
+        market_type = data.get('market_type', 'A')
+        
+        if not stock_code:
+            return jsonify({'error': '请提供股票代码'}), 400
+        
+        app.logger.info(f"开始增强版辩论分析: {stock_code}")
+        
+        # 使用asyncio运行异步分析
+        import asyncio
+        
+        async def run_analysis():
+            return await enhanced_analyzer.enhanced_analysis(
+                stock_code=stock_code,
+                market_type=market_type
+            )
+        
+        # 使用asyncio.run运行异步分析
+        try:
+            result = asyncio.run(run_analysis())
+        except Exception as e:
+            app.logger.error(f"异步执行失败: {e}")
+            return jsonify({'error': f'异步执行失败: {str(e)}'}), 500
+        
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 500
+        
+        return custom_jsonify(result)
+        
+    except Exception as e:
+        app.logger.error(f"增强版辩论分析出错: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
 
 # 在应用启动时启动清理线程（保持原有代码不变）
 cleaner_thread = threading.Thread(target=run_task_cleaner)
 cleaner_thread.daemon = True
 cleaner_thread.start()
 
+# 启动 Claw 数据自动同步
+if CLAW_AVAILABLE and start_auto_sync:
+    start_auto_sync()
+
 if __name__ == '__main__':
     # 将 host 设置为 '0.0.0.0' 使其支持所有网络接口访问
-    app.run(host='0.0.0.0', port=8889, debug=False)
+    app.run(host='0.0.0.0', port=8890, debug=False)

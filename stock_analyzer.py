@@ -19,9 +19,58 @@ import logging
 import math
 import json
 import threading
+import glob
+
+# 增强版数据收集器
+try:
+    from enhanced_data_collector import get_collector
+    ENHANCED_COLLECTOR_AVAILABLE = True
+except ImportError:
+    ENHANCED_COLLECTOR_AVAILABLE = False
 
 # 线程局部存储
 thread_local = threading.local()
+
+# ===== 多数据源初始化 =====
+# 1. Ashare（新浪+腾讯实时数据，免费无限制）
+import sys
+sys.path.insert(0, '/Users/ecustkiller/.workbuddy/skills/ashare-data/scripts')
+try:
+    from Ashare import get_price as ashare_get_price
+    ASHARE_AVAILABLE = True
+except ImportError:
+    ASHARE_AVAILABLE = False
+
+# 2. 本地快照目录
+SNAPSHOT_DIR = os.path.expanduser('~/stock_data/daily_snapshot')
+_snapshot_cache = {}  # 快照缓存
+
+# 3. Tushare
+TUSHARE_TOKEN = os.environ.get('TUSHARE_TOKEN', '')
+
+
+def _load_snapshot(date_str):
+    """加载本地parquet快照（带缓存）"""
+    if date_str in _snapshot_cache:
+        return _snapshot_cache[date_str]
+    fpath = os.path.join(SNAPSHOT_DIR, f'{date_str}.parquet')
+    if os.path.exists(fpath):
+        try:
+            df = pd.read_parquet(fpath)
+            _snapshot_cache[date_str] = df
+            return df
+        except Exception:
+            pass
+    return None
+
+
+def _get_snapshot_dates():
+    """获取本地快照的所有交易日期（已排序）"""
+    if not os.path.exists(SNAPSHOT_DIR):
+        return []
+    dates = sorted(f.replace('.parquet', '') for f in os.listdir(SNAPSHOT_DIR)
+                   if f.endswith('.parquet') and f[0].isdigit())
+    return dates
 
 
 class StockAnalyzer:
@@ -61,18 +110,17 @@ class StockAnalyzer:
         # JSON匹配标志
         self.json_match_flag = True
     def get_stock_data(self, stock_code, market_type='A', start_date=None, end_date=None):
-        """获取股票数据"""
-        import akshare as ak
-
+        """
+        获取股票数据 — 多数据源回退机制
+        A股优先级：本地快照 → Ashare（新浪/腾讯） → Tushare → akshare
+        港股/美股：akshare（保持原逻辑）
+        """
         self.logger.info(f"开始获取股票 {stock_code} 数据，市场类型: {market_type}")
 
         cache_key = f"{stock_code}_{market_type}_{start_date}_{end_date}_price"
         if cache_key in self.data_cache:
             cached_df = self.data_cache[cache_key]
-            # 创建一个副本以避免修改缓存数据
-            # 并确保副本的日期类型为datetime
             result = cached_df.copy()
-            # If 'date' column exists but is not datetime, convert it
             if 'date' in result.columns and not pd.api.types.is_datetime64_any_dtype(result['date']):
                 try:
                     result['date'] = pd.to_datetime(result['date'])
@@ -85,63 +133,279 @@ class StockAnalyzer:
         if end_date is None:
             end_date = datetime.now().strftime('%Y%m%d')
 
+        df = None
+        data_source = None
+
+        # ===== A股：多数据源回退 =====
+        if market_type == 'A':
+            # 数据源1：本地parquet快照（最快，零延迟）
+            df, data_source = self._get_stock_data_from_snapshot(stock_code, start_date, end_date)
+
+            # 数据源2：Ashare（新浪+腾讯实时数据）
+            if df is None or df.empty:
+                df, data_source = self._get_stock_data_from_ashare(stock_code, start_date, end_date)
+
+            # 数据源3：Tushare Pro
+            if df is None or df.empty:
+                df, data_source = self._get_stock_data_from_tushare(stock_code, start_date, end_date)
+
+            # 数据源4：akshare（原方案，作为最后兜底）
+            if df is None or df.empty:
+                df, data_source = self._get_stock_data_from_akshare(stock_code, market_type, start_date, end_date)
+
+        # ===== 港股/美股：使用akshare =====
+        else:
+            df, data_source = self._get_stock_data_from_akshare(stock_code, market_type, start_date, end_date)
+
+        if df is None or df.empty:
+            raise Exception(f"所有数据源均无法获取股票 {stock_code} 的数据")
+
+        self.logger.info(f"✅ 股票 {stock_code} 数据获取成功，来源: {data_source}，共 {len(df)} 条")
+
+        # 缓存原始数据
+        self.data_cache[cache_key] = df.copy()
+        return df
+
+    def _get_stock_data_from_snapshot(self, stock_code, start_date, end_date):
+        """从本地parquet快照拼接历史K线数据"""
         try:
-            # 根据市场类型获取数据
-            if market_type == 'A':
-                df = ak.stock_zh_a_hist(
-                    symbol=stock_code,
-                    start_date=start_date,
-                    end_date=end_date,
-                    adjust="qfq"
-                )
-            elif market_type == 'HK':
-                df = ak.stock_hk_daily(
-                    symbol=stock_code,
-                    adjust="qfq"
-                )
-            elif market_type == 'US':
-                df = ak.stock_us_hist(
-                    symbol=stock_code,
-                    start_date=start_date,
-                    end_date=end_date,
-                    adjust="qfq"
-                )
+            all_dates = _get_snapshot_dates()
+            if not all_dates:
+                self.logger.info("本地快照目录为空，跳过")
+                return None, None
+
+            # 筛选日期范围内的快照
+            dates_in_range = [d for d in all_dates if start_date <= d <= end_date]
+            if len(dates_in_range) < 5:
+                self.logger.info(f"本地快照日期范围内数据不足({len(dates_in_range)}天)，跳过")
+                return None, None
+
+            # 将股票代码转换为ts_code格式（如 600519 → 600519.SH）
+            ts_code = self._to_ts_code(stock_code)
+
+            rows = []
+            for d in dates_in_range:
+                snap = _load_snapshot(d)
+                if snap is not None:
+                    row = snap[snap['ts_code'] == ts_code]
+                    if not row.empty:
+                        r = row.iloc[0]
+                        rows.append({
+                            'date': pd.to_datetime(d, format='%Y%m%d'),
+                            'open': float(r.get('open', np.nan)),
+                            'high': float(r.get('high', np.nan)),
+                            'low': float(r.get('low', np.nan)),
+                            'close': float(r.get('close', np.nan)),
+                            'volume': float(r.get('vol', 0)),
+                            'amount': float(r.get('amount', 0)),
+                        })
+
+            if len(rows) < 5:
+                self.logger.info(f"本地快照中 {stock_code} 数据不足({len(rows)}天)，跳过")
+                return None, None
+
+            df = pd.DataFrame(rows)
+            df = df.sort_values('date').dropna(subset=['close'])
+            self.logger.info(f"📊 本地快照: {stock_code} 获取 {len(df)} 天数据 ({df['date'].iloc[0].strftime('%Y-%m-%d')}~{df['date'].iloc[-1].strftime('%Y-%m-%d')})")
+            return df, "本地快照"
+
+        except Exception as e:
+            self.logger.warning(f"本地快照获取失败: {e}")
+            return None, None
+
+    def _get_stock_data_from_ashare(self, stock_code, start_date, end_date):
+        """使用Ashare（新浪+腾讯）获取A股数据"""
+        if not ASHARE_AVAILABLE:
+            self.logger.info("Ashare不可用，跳过")
+            return None, None
+        try:
+            # 转换股票代码格式：600519 → sh600519
+            code = stock_code.replace('.SH', '').replace('.SZ', '')
+            if code.startswith(('6', '9')):
+                ashare_code = 'sh' + code
             else:
-                raise ValueError(f"不支持的市场类型: {market_type}")
+                ashare_code = 'sz' + code
 
-            # 重命名列名以匹配分析需求
-            df = df.rename(columns={
-                "日期": "date",
-                "开盘": "open",
-                "收盘": "close",
-                "最高": "high",
-                "最低": "low",
-                "成交量": "volume",
-                "成交额": "amount"
-            })
+            # 计算需要的K线数量
+            days = (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days
+            count = min(max(days, 30), 800)  # Ashare最多支持约800根K线
 
-            # 确保日期格式正确
-            df['date'] = pd.to_datetime(df['date'])
+            df = ashare_get_price(ashare_code, frequency='1d', count=count)
+            if df is None or len(df) == 0:
+                self.logger.info(f"Ashare返回空数据: {stock_code}")
+                return None, None
+
+            df = df.reset_index()
+            date_col = df.columns[0]
+            df['date'] = pd.to_datetime(df[date_col])
+
+            # 重命名列
+            col_map = {}
+            for c in df.columns:
+                cl = c.lower()
+                if cl == 'volume':
+                    col_map[c] = 'volume'
+            df = df.rename(columns=col_map)
+
+            # 确保必要列存在
+            required = ['open', 'high', 'low', 'close']
+            for r in required:
+                if r not in df.columns:
+                    self.logger.warning(f"Ashare缺少列 {r}")
+                    return None, None
 
             # 数据类型转换
-            numeric_columns = ['open', 'close', 'high', 'low', 'volume']
-            for col in numeric_columns:
+            for col in ['open', 'high', 'low', 'close', 'volume']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
 
-            # 删除空值
-            df = df.dropna()
+            # 如果没有amount列，用close*volume估算
+            if 'amount' not in df.columns:
+                df['amount'] = df['close'] * df.get('volume', 0)
 
-            result = df.sort_values('date')
+            # 筛选日期范围
+            start_dt = pd.to_datetime(start_date, format='%Y%m%d')
+            end_dt = pd.to_datetime(end_date, format='%Y%m%d')
+            df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
 
-            # 缓存原始数据（包含datetime类型）
-            self.data_cache[cache_key] = result.copy()
+            df = df[['date', 'open', 'high', 'low', 'close', 'volume', 'amount']].copy()
+            df = df.sort_values('date').dropna(subset=['close'])
 
-            return result
+            if len(df) < 5:
+                self.logger.info(f"Ashare数据不足: {stock_code} 仅 {len(df)} 条")
+                return None, None
+
+            self.logger.info(f"📊 Ashare: {stock_code} 获取 {len(df)} 天数据")
+            return df, "Ashare"
 
         except Exception as e:
-            self.logger.error(f"获取股票数据失败: {e}")
-            raise Exception(f"获取股票数据失败: {e}")
+            self.logger.warning(f"Ashare获取失败: {e}")
+            return None, None
+
+    def _get_stock_data_from_tushare(self, stock_code, start_date, end_date):
+        """使用Tushare Pro获取A股数据"""
+        if not TUSHARE_TOKEN:
+            self.logger.info("Tushare Token未配置，跳过")
+            return None, None
+        try:
+            ts_code = self._to_ts_code(stock_code)
+
+            # 调用Tushare daily接口
+            d = {
+                'api_name': 'daily',
+                'token': TUSHARE_TOKEN,
+                'params': {'ts_code': ts_code, 'start_date': start_date, 'end_date': end_date},
+                'fields': 'ts_code,trade_date,open,high,low,close,vol,amount'
+            }
+            r = requests.post('http://api.tushare.pro', json=d, timeout=30)
+            j = r.json()
+            if not j.get('data') or not j['data'].get('items'):
+                self.logger.info(f"Tushare返回空数据: {stock_code}")
+                return None, None
+
+            df = pd.DataFrame(j['data']['items'], columns=j['data']['fields'])
+            df['date'] = pd.to_datetime(df['trade_date'], format='%Y%m%d')
+            df = df.rename(columns={'vol': 'volume'})
+
+            for col in ['open', 'high', 'low', 'close', 'volume', 'amount']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            df = df[['date', 'open', 'high', 'low', 'close', 'volume', 'amount']].copy()
+            df = df.sort_values('date').dropna(subset=['close'])
+
+            if len(df) < 5:
+                self.logger.info(f"Tushare数据不足: {stock_code} 仅 {len(df)} 条")
+                return None, None
+
+            self.logger.info(f"📊 Tushare: {stock_code} 获取 {len(df)} 天数据")
+            return df, "Tushare"
+
+        except Exception as e:
+            self.logger.warning(f"Tushare获取失败: {e}")
+            return None, None
+
+    def _get_stock_data_from_akshare(self, stock_code, market_type, start_date, end_date):
+        """使用akshare获取股票数据（原方案，作为兜底）"""
+        import akshare as ak
+
+        max_retries = 2
+        retry_delay = 2
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                if market_type == 'A':
+                    df = ak.stock_zh_a_hist(
+                        symbol=stock_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                        adjust="qfq"
+                    )
+                elif market_type == 'HK':
+                    df = ak.stock_hk_daily(
+                        symbol=stock_code,
+                        adjust="qfq"
+                    )
+                elif market_type == 'US':
+                    df = ak.stock_us_hist(
+                        symbol=stock_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                        adjust="qfq"
+                    )
+                else:
+                    raise ValueError(f"不支持的市场类型: {market_type}")
+
+                df = df.rename(columns={
+                    "日期": "date",
+                    "开盘": "open",
+                    "收盘": "close",
+                    "最高": "high",
+                    "最低": "low",
+                    "成交量": "volume",
+                    "成交额": "amount"
+                })
+
+                df['date'] = pd.to_datetime(df['date'])
+
+                numeric_columns = ['open', 'close', 'high', 'low', 'volume']
+                for col in numeric_columns:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+                df = df.dropna()
+                df = df.sort_values('date')
+
+                if len(df) < 5:
+                    self.logger.info(f"akshare数据不足: {stock_code} 仅 {len(df)} 条")
+                    return None, None
+
+                self.logger.info(f"📊 akshare: {stock_code} 获取 {len(df)} 天数据")
+                return df, "akshare"
+
+            except ValueError:
+                raise
+            except Exception as e:
+                self.logger.warning(f"akshare第{attempt}次尝试失败: {e}")
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    self.logger.warning(f"akshare获取失败（已重试{max_retries}次）: {e}")
+                    return None, None
+
+        return None, None
+
+    @staticmethod
+    def _to_ts_code(stock_code):
+        """将股票代码转换为ts_code格式（如 600519 → 600519.SH）"""
+        code = stock_code.replace('.SH', '').replace('.SZ', '')
+        if '.' in stock_code:
+            return stock_code
+        if code.startswith(('6', '9')):
+            return code + '.SH'
+        else:
+            return code + '.SZ'
 
     def get_north_flow_history(self, stock_code, start_date=None, end_date=None):
         """获取单个股票的北向资金历史持股数据"""
@@ -281,221 +545,370 @@ class StockAnalyzer:
             self.logger.error(f"计算技术指标时出错: {str(e)}")
             raise
 
-    def calculate_score(self, df, market_type='A'):
+    def calculate_score(self, df, market_type='A', stock_code=None):
         """
-        计算股票评分 - 使用时空共振交易系统增强
-        根据不同的市场特征调整评分权重和标准
+        计算股票综合评分 - 8维度增强版
+        
+        维度权重（A股）：
+        1. 趋势(15%) - 均线排列、价格位置
+        2. 技术指标(15%) - RSI、MACD、布林带
+        3. 成交量(10%) - 量价配合、量比
+        4. 动量(10%) - ROC、涨跌幅趋势
+        5. 基本面(20%) - PE/PB/ROE/成长性/财务健康
+        6. 资金流(15%) - 主力资金、北向资金
+        7. 市场情绪(10%) - 封板率、赚钱效应、BJCJ阶段
+        8. 行业强度(5%) - 行业资金流向、板块热度
         """
         try:
-            score = 0
             latest = df.iloc[-1]
-            prev_days = min(30, len(df) - 1)  # Get the most recent 30 days or all available data
+            prev = df.iloc[-2] if len(df) > 1 else latest
 
-            # 时空共振框架 - 维度1：多时间框架分析
-            # 基础权重配置
-            weights = {
-                'trend': 0.30,  # 趋势因子权重（日线级别）
-                'volatility': 0.15,  # 波动率因子权重
-                'technical': 0.25,  # 技术指标因子权重
-                'volume': 0.20,  # 成交量因子权重（能量守恒维度）
-                'momentum': 0.10  # 动量因子权重（周线级别）
-            }
-
-            # 根据市场类型调整权重（维度1：时间框架嵌套）
-            if market_type == 'US':
-                # 美股优先考虑长期趋势
-                weights['trend'] = 0.35
-                weights['volatility'] = 0.10
-                weights['momentum'] = 0.15
-            elif market_type == 'HK':
-                # 港股调整波动率和成交量权重
-                weights['volatility'] = 0.20
-                weights['volume'] = 0.25
-
-            # 1. 趋势评分（最高30分）- 日线级别分析
+            # ========== 维度1：趋势评分（满分15分）==========
             trend_score = 0
-
-            # 均线评估 - "三线形态"分析
+            # 均线排列
             if latest['MA5'] > latest['MA20'] and latest['MA20'] > latest['MA60']:
-                # 完美多头排列（维度1：日线形态）
-                trend_score += 15
+                trend_score += 8  # 完美多头排列
             elif latest['MA5'] > latest['MA20']:
-                # 短期上升趋势（维度1：5分钟形态）
-                trend_score += 10
+                trend_score += 5  # 短期多头
             elif latest['MA20'] > latest['MA60']:
-                # 中期上升趋势
-                trend_score += 5
-
-            # 价格位置评估
-            if latest['close'] > latest['MA5']:
-                trend_score += 5
-            if latest['close'] > latest['MA20']:
-                trend_score += 5
-            if latest['close'] > latest['MA60']:
-                trend_score += 5
-
-            # 确保不超过最高分数限制
-            trend_score = min(30, trend_score)
-
-            # 2. 波动率评分（最高15分）- 维度2：过滤
-            volatility_score = 0
-
-            # 适度的波动率最理想
-            volatility = latest['Volatility']
-            if 1.0 <= volatility <= 2.5:
-                # 最佳波动率范围
-                volatility_score += 15
-            elif 2.5 < volatility <= 4.0:
-                # 较高波动率，次优选择
-                volatility_score += 10
-            elif volatility < 1.0:
-                # 波动率过低，缺乏能量
-                volatility_score += 5
+                trend_score += 3  # 中期多头
+            elif latest['MA5'] < latest['MA20'] < latest['MA60']:
+                trend_score += 0  # 空头排列
             else:
-                # 波动率过高，风险较大
-                volatility_score += 0
+                trend_score += 2  # 盘整
 
-            # 3. 技术指标评分（最高25分）- "峰值检测系统"
+            # 价格与均线关系
+            if latest['close'] > latest['MA5']:
+                trend_score += 2
+            if latest['close'] > latest['MA20']:
+                trend_score += 3
+            if latest['close'] > latest['MA60']:
+                trend_score += 2
+            trend_score = min(15, trend_score)
+
+            # ========== 维度2：技术指标评分（满分15分）==========
             technical_score = 0
-
-            # RSI指标评估（10分）
+            # RSI（5分）
             rsi = latest['RSI']
             if 40 <= rsi <= 60:
-                # 中性区域，趋势稳定
-                technical_score += 7
-            elif 30 <= rsi < 40 or 60 < rsi <= 70:
-                # 阈值区域，可能出现反转信号
-                technical_score += 10
+                technical_score += 3  # 中性稳定
+            elif 30 <= rsi < 40:
+                technical_score += 5  # 超卖反弹区
+            elif 60 < rsi <= 70:
+                technical_score += 4  # 强势区
             elif rsi < 30:
-                # 超卖区域，可能出现买入机会
-                technical_score += 8
+                technical_score += 4  # 深度超卖
             elif rsi > 70:
-                # 超买区域，可能存在卖出风险
-                technical_score += 2
+                technical_score += 1  # 超买风险
 
-            # MACD指标评估（10分）- "峰值预警信号"
+            # MACD（5分）
             if latest['MACD'] > latest['Signal'] and latest['MACD_hist'] > 0:
-                # MACD金叉且柱状图为正
-                technical_score += 10
+                technical_score += 5  # 金叉+柱状图为正
             elif latest['MACD'] > latest['Signal']:
-                # MACD金叉
-                technical_score += 8
-            elif latest['MACD'] < latest['Signal'] and latest['MACD_hist'] < 0:
-                # MACD死叉且柱状图为负
-                technical_score += 0
-            elif latest['MACD_hist'] > df.iloc[-2]['MACD_hist']:
-                # MACD柱状图增长，可能出现反转信号
-                technical_score += 5
+                technical_score += 4  # 金叉
+            elif latest['MACD_hist'] > prev['MACD_hist']:
+                technical_score += 2  # 柱状图收窄/增长
+            else:
+                technical_score += 0  # 死叉
 
-            # 布林带位置评估（5分）
-            bb_position = (latest['close'] - latest['BB_lower']) / (latest['BB_upper'] - latest['BB_lower'])
-            if 0.3 <= bb_position <= 0.7:
-                # 价格在布林带中间区域，趋势稳定
-                technical_score += 3
-            elif bb_position < 0.2:
-                # 价格接近下轨，可能超卖
-                technical_score += 5
-            elif bb_position > 0.8:
-                # 价格接近上轨，可能超买
-                technical_score += 1
+            # 布林带（5分）
+            bb_width = latest['BB_upper'] - latest['BB_lower']
+            if bb_width > 0:
+                bb_pos = (latest['close'] - latest['BB_lower']) / bb_width
+                if 0.3 <= bb_pos <= 0.7:
+                    technical_score += 3  # 中轨附近
+                elif bb_pos < 0.2:
+                    technical_score += 5  # 接近下轨，超卖
+                elif bb_pos > 0.8:
+                    technical_score += 1  # 接近上轨，超买
+                else:
+                    technical_score += 2
+            technical_score = min(15, technical_score)
 
-            # 确保最大分数限制
-            technical_score = min(25, technical_score)
-
-            # 4. 成交量评分（最高20分）- "能量守恒维度"
+            # ========== 维度3：成交量评分（满分10分）==========
             volume_score = 0
-
-            # 成交量趋势分析
             recent_vol_ratio = [df.iloc[-i]['Volume_Ratio'] for i in range(1, min(6, len(df)))]
             avg_vol_ratio = sum(recent_vol_ratio) / len(recent_vol_ratio)
 
-            if avg_vol_ratio > 1.5 and latest['close'] > df.iloc[-2]['close']:
-                # 成交量放大且价格上涨 - "成交量能量阈值突破"
-                volume_score += 20
-            elif avg_vol_ratio > 1.2 and latest['close'] > df.iloc[-2]['close']:
-                # 成交量和价格同步上涨
-                volume_score += 15
-            elif avg_vol_ratio < 0.8 and latest['close'] < df.iloc[-2]['close']:
-                # 成交量和价格同步下跌，可能是健康回调
-                volume_score += 10
-            elif avg_vol_ratio > 1.2 and latest['close'] < df.iloc[-2]['close']:
-                # 成交量增加但价格下跌，可能存在较大卖压
-                volume_score += 0
+            if avg_vol_ratio > 1.5 and latest['close'] > prev['close']:
+                volume_score += 10  # 放量上涨
+            elif avg_vol_ratio > 1.2 and latest['close'] > prev['close']:
+                volume_score += 8  # 温和放量上涨
+            elif avg_vol_ratio < 0.8 and latest['close'] < prev['close']:
+                volume_score += 5  # 缩量下跌（健康回调）
+            elif avg_vol_ratio > 1.5 and latest['close'] < prev['close']:
+                volume_score += 1  # 放量下跌（危险）
             else:
-                # 其他情况
-                volume_score += 8
+                volume_score += 4  # 正常
+            volume_score = min(10, volume_score)
 
-            # 5. 动量评分（最高10分）- 维度1：周线级别
+            # ========== 维度4：动量评分（满分10分）==========
             momentum_score = 0
-
-            # ROC动量指标
             roc = latest['ROC']
             if roc > 5:
-                # Strong upward momentum
                 momentum_score += 10
             elif 2 <= roc <= 5:
-                # Moderate upward momentum
                 momentum_score += 8
             elif 0 <= roc < 2:
-                # Weak upward momentum
                 momentum_score += 5
             elif -2 <= roc < 0:
-                # Weak downward momentum
                 momentum_score += 3
             else:
-                # Strong downward momentum
                 momentum_score += 0
+            momentum_score = min(10, momentum_score)
 
-            # 根据加权因子计算总分 - “共振公式”
+            # ========== 维度5：基本面评分（满分20分）==========
+            fundamental_score = 0
+            fundamental_detail = {}
+            if ENHANCED_COLLECTOR_AVAILABLE and stock_code:
+                try:
+                    collector = get_collector()
+                    fund_data = collector.get_fundamental_data(stock_code)
+                    if fund_data:
+                        # PE估值（6分）
+                        pe = fund_data.get('pe_ttm')
+                        if pe and pe > 0:
+                            if pe < 15:
+                                fundamental_score += 6
+                            elif pe < 25:
+                                fundamental_score += 5
+                            elif pe < 40:
+                                fundamental_score += 3
+                            elif pe < 60:
+                                fundamental_score += 1
+                            else:
+                                fundamental_score += 0
+
+                        # ROE盈利能力（6分）
+                        roe = fund_data.get('roe')
+                        if roe:
+                            if roe > 20:
+                                fundamental_score += 6
+                            elif roe > 15:
+                                fundamental_score += 5
+                            elif roe > 10:
+                                fundamental_score += 3
+                            elif roe > 5:
+                                fundamental_score += 1
+                            else:
+                                fundamental_score += 0
+
+                        # 财务健康-负债率（4分）
+                        debt = fund_data.get('debt_ratio')
+                        if debt:
+                            if debt < 30:
+                                fundamental_score += 4
+                            elif debt < 50:
+                                fundamental_score += 3
+                            elif debt < 70:
+                                fundamental_score += 1
+                            else:
+                                fundamental_score += 0
+
+                        # 成长性（4分）
+                        rev_g = fund_data.get('revenue_growth_3y')
+                        if rev_g is not None:
+                            if rev_g > 30:
+                                fundamental_score += 4
+                            elif rev_g > 15:
+                                fundamental_score += 3
+                            elif rev_g > 0:
+                                fundamental_score += 1
+                            else:
+                                fundamental_score += 0
+
+                        fundamental_detail = fund_data
+                except Exception as e:
+                    self.logger.warning(f"基本面评分获取失败: {e}")
+                    fundamental_score = 10  # 数据不可用时给中性分
+            else:
+                fundamental_score = 10  # 无增强数据时给中性分
+            fundamental_score = min(20, fundamental_score)
+
+            # ========== 维度6：资金流评分（满分15分）==========
+            capital_score = 0
+            capital_detail = {}
+            if ENHANCED_COLLECTOR_AVAILABLE and stock_code:
+                try:
+                    collector = get_collector()
+                    cap_data = collector.get_capital_flow_data(stock_code)
+                    if cap_data:
+                        # 主力资金方向（8分）
+                        pos_days = cap_data.get('positive_days', 0)
+                        neg_days = cap_data.get('negative_days', 0)
+                        total_flow = cap_data.get('main_net_inflow_total', 0)
+                        if pos_days > neg_days and total_flow > 0:
+                            if pos_days >= 7:
+                                capital_score += 8  # 持续流入
+                            else:
+                                capital_score += 6  # 偏向流入
+                        elif neg_days > pos_days and total_flow < 0:
+                            if neg_days >= 7:
+                                capital_score += 0  # 持续流出
+                            else:
+                                capital_score += 2  # 偏向流出
+                        else:
+                            capital_score += 4  # 中性
+
+                        # 北向资金（4分）
+                        north_5d = cap_data.get('north_money_5d', 0)
+                        if north_5d is not None:
+                            if north_5d > 100:
+                                capital_score += 4
+                            elif north_5d > 0:
+                                capital_score += 3
+                            elif north_5d > -100:
+                                capital_score += 1
+                            else:
+                                capital_score += 0
+
+                        # 资金流评分（3分）
+                        cap_score_val = cap_data.get('capital_score', 50)
+                        if cap_score_val > 70:
+                            capital_score += 3
+                        elif cap_score_val > 50:
+                            capital_score += 2
+                        elif cap_score_val > 30:
+                            capital_score += 1
+
+                        capital_detail = cap_data
+                except Exception as e:
+                    self.logger.warning(f"资金流评分获取失败: {e}")
+                    capital_score = 7  # 数据不可用时给中性分
+            else:
+                capital_score = 7  # 无增强数据时给中性分
+            capital_score = min(15, capital_score)
+
+            # ========== 维度7：市场情绪评分（满分10分）==========
+            sentiment_score = 0
+            sentiment_detail = {}
+            if ENHANCED_COLLECTOR_AVAILABLE:
+                try:
+                    collector = get_collector()
+                    sent_data = collector.get_market_sentiment_data()
+                    if sent_data:
+                        # 封板率和赚钱效应（5分）
+                        fbl = sent_data.get('fbl', 50)
+                        earn = sent_data.get('earn_rate', 50)
+                        if fbl > 60 and earn > 50:
+                            sentiment_score += 5  # 市场热
+                        elif fbl > 40 and earn > 40:
+                            sentiment_score += 3  # 正常
+                        elif fbl < 30 or earn < 25:
+                            sentiment_score += 1  # 冷淡
+                        else:
+                            sentiment_score += 2
+
+                        # BJCJ情绪阶段（5分）
+                        phase = sent_data.get('emotion_phase', '')
+                        if phase in ['加仓期', '重仓期']:
+                            sentiment_score += 5
+                        elif phase in ['轻仓期', '观望期']:
+                            sentiment_score += 3
+                        elif phase == '防御期':
+                            sentiment_score += 1
+                        elif phase == '空仓期':
+                            sentiment_score += 0
+                        else:
+                            sentiment_score += 2  # 未知阶段
+
+                        sentiment_detail = sent_data
+                except Exception as e:
+                    self.logger.warning(f"市场情绪评分获取失败: {e}")
+                    sentiment_score = 5
+            else:
+                sentiment_score = 5  # 无增强数据时给中性分
+            sentiment_score = min(10, sentiment_score)
+
+            # ========== 维度8：行业强度评分（满分5分）==========
+            industry_score = 0
+            industry_detail = {}
+            if ENHANCED_COLLECTOR_AVAILABLE and stock_code:
+                try:
+                    collector = get_collector()
+                    ind_data = collector.get_industry_data(stock_code)
+                    if ind_data:
+                        # 行业资金净流入（3分）
+                        ind_flow = ind_data.get('industry_net_flow', 0)
+                        if ind_flow and ind_flow > 0:
+                            industry_score += 3  # 行业资金流入
+                        elif ind_flow and ind_flow > -5:
+                            industry_score += 1  # 小幅流出
+                        else:
+                            industry_score += 0  # 大幅流出
+
+                        # 是否在热门板块（2分）
+                        hot_sectors = ind_data.get('hot_sectors', [])
+                        industry_name = ind_data.get('industry', '')
+                        if hot_sectors and industry_name:
+                            for sector in hot_sectors:
+                                if industry_name in sector:
+                                    industry_score += 2
+                                    break
+
+                        industry_detail = ind_data
+                except Exception as e:
+                    self.logger.warning(f"行业强度评分获取失败: {e}")
+                    industry_score = 2
+            else:
+                industry_score = 2  # 无增强数据时给中性分
+            industry_score = min(5, industry_score)
+
+            # ========== 计算总分 ==========
             final_score = (
-                    trend_score * weights['trend'] / 0.30 +
-                    volatility_score * weights['volatility'] / 0.15 +
-                    technical_score * weights['technical'] / 0.25 +
-                    volume_score * weights['volume'] / 0.20 +
-                    momentum_score * weights['momentum'] / 0.10
+                trend_score +
+                technical_score +
+                volume_score +
+                momentum_score +
+                fundamental_score +
+                capital_score +
+                sentiment_score +
+                industry_score
             )
 
-            # 特殊市场调整 - “市场适应机制”
+            # 特殊市场调整
             if market_type == 'US':
-                # 美国市场额外调整因素
-                # 检查是否为财报季
-                is_earnings_season = self._is_earnings_season()
-                if is_earnings_season:
-                    # Earnings season has higher volatility, adjust score certainty
-                    final_score = 0.9 * final_score + 5  # Slight regression to the mean
-
+                if self._is_earnings_season():
+                    final_score = 0.9 * final_score + 5
             elif market_type == 'HK':
-                # 港股特殊调整
-                # 检查A股联动效应
                 a_share_linkage = self._check_a_share_linkage(df)
-                if a_share_linkage > 0.7:  # High linkage
-                    # 根据大陆市场情绪调整
+                if a_share_linkage > 0.7:
                     mainland_sentiment = self._get_mainland_market_sentiment()
                     if mainland_sentiment > 0:
-                        final_score += 5
+                        final_score += 3
                     else:
-                        final_score -= 5
+                        final_score -= 3
 
-            # Ensure score remains within 0-100 range
             final_score = max(0, min(100, round(final_score)))
 
-            # Store sub-scores for display
+            # 存储各维度评分详情
             self.score_details = {
                 'trend': trend_score,
-                'volatility': volatility_score,
                 'technical': technical_score,
                 'volume': volume_score,
                 'momentum': momentum_score,
-                'total': final_score
+                'fundamental': fundamental_score,
+                'capital_flow': capital_score,
+                'sentiment': sentiment_score,
+                'industry': industry_score,
+                'total': final_score,
+                # 详细数据（供前端展示）
+                'fundamental_detail': fundamental_detail,
+                'capital_detail': capital_detail,
+                'sentiment_detail': sentiment_detail,
+                'industry_detail': industry_detail,
+                # 维度满分配置
+                'max_scores': {
+                    'trend': 15, 'technical': 15, 'volume': 10, 'momentum': 10,
+                    'fundamental': 20, 'capital_flow': 15, 'sentiment': 10, 'industry': 5
+                }
             }
 
             return final_score
 
         except Exception as e:
-            self.logger.error(f"Error calculating score: {str(e)}")
-            # Return neutral score on error
+            self.logger.error(f"计算综合评分出错: {str(e)}")
             return 50
-
     def calculate_position_size(self, stock_code, risk_percent=2.0, stop_loss_percent=5.0):
         """
         根据风险管理原则计算最佳仓位大小
@@ -1242,8 +1655,97 @@ class StockAnalyzer:
             self.logger.info(f"获取 {stock_code} 的相关新闻和市场信息")
             news_data = self.get_stock_news(stock_code, market_type)
 
-            # 6. 评分分解
-            score = self.calculate_score(df, market_type)
+            # 5.5 获取增强版多维度数据（基本面、资金流、市场情绪、宏观环境等）
+            enhanced_context = ""
+            enhanced_dimensions = []
+            if ENHANCED_COLLECTOR_AVAILABLE:
+                try:
+                    collector = get_collector()
+                    enhanced_data = collector.collect_comprehensive_data(stock_code, market_type)
+                    
+                    # 如果增强数据中有更好的股票名称和行业信息，使用它
+                    industry_info = enhanced_data.get('industry', {})
+                    if industry_info.get('stock_name') and industry_info['stock_name'] != 'N/A':
+                        stock_name = industry_info['stock_name']
+                    if industry_info.get('industry') and industry_info['industry'] != 'N/A':
+                        industry = industry_info['industry']
+                    
+                    # 构建增强数据上下文
+                    enhanced_sections = []
+                    
+                    # 基本面数据
+                    fund = enhanced_data.get('fundamental', {})
+                    if fund:
+                        enhanced_dimensions.append('基本面')
+                        fund_text = "\n    ── 基本面数据 ──"
+                        if fund.get('pe_ttm') is not None:
+                            fund_text += f"\n       PE(TTM): {fund['pe_ttm']:.2f} ({fund.get('valuation_signal', '')})"
+                        if fund.get('pb') is not None:
+                            fund_text += f"\n       PB: {fund['pb']:.2f}"
+                        if fund.get('roe') is not None:
+                            fund_text += f"\n       ROE: {fund['roe']:.2f}% ({fund.get('profitability_signal', '')})"
+                        if fund.get('revenue_growth_3y') is not None:
+                            fund_text += f"\n       营收3年CAGR: {fund['revenue_growth_3y']:.2f}% ({fund.get('growth_signal', '')})"
+                        if fund.get('debt_ratio') is not None:
+                            fund_text += f"\n       资产负债率: {fund['debt_ratio']:.2f}% ({fund.get('financial_health', '')})"
+                        if fund.get('total_mv') is not None:
+                            fund_text += f"\n       总市值: {fund['total_mv']:.2f}亿 ({fund.get('market_cap_level', '')})"
+                        enhanced_sections.append(fund_text)
+                    
+                    # 资金流数据
+                    capital = enhanced_data.get('capital_flow', {})
+                    if capital:
+                        enhanced_dimensions.append('资金流')
+                        cap_text = "\n    ── 资金流向 ──"
+                        if capital.get('capital_signal'):
+                            cap_text += f"\n       主力资金: {capital['capital_signal']}"
+                        if capital.get('main_net_inflow_total') is not None:
+                            cap_text += f"\n       近10日主力净流入: {capital['main_net_inflow_total']:.2f}万"
+                        if capital.get('positive_days') is not None:
+                            cap_text += f"\n       净流入天数: {capital['positive_days']}天 / 净流出天数: {capital.get('negative_days', 0)}天"
+                        if capital.get('north_signal'):
+                            cap_text += f"\n       北向资金: {capital['north_signal']}"
+                        enhanced_sections.append(cap_text)
+                    
+                    # 市场情绪数据
+                    sentiment = enhanced_data.get('market_sentiment', {})
+                    if sentiment:
+                        enhanced_dimensions.append('市场情绪')
+                        sent_text = "\n    ── 市场情绪 ──"
+                        if sentiment.get('sentiment_signal'):
+                            sent_text += f"\n       情绪判定: {sentiment['sentiment_signal']}"
+                        if sentiment.get('emotion_phase'):
+                            sent_text += f"\n       BJCJ情绪阶段: 【{sentiment['emotion_phase']}】 建议仓位: {sentiment.get('suggested_position', '')}"
+                        if sentiment.get('zt_cnt') is not None:
+                            sent_text += f"\n       涨停: {sentiment['zt_cnt']}只, 跌停: {sentiment.get('dt_cnt', 0)}只"
+                        if sentiment.get('fbl') is not None:
+                            sent_text += f"\n       封板率: {sentiment['fbl']:.0f}%, 赚钱效应: {sentiment.get('earn_rate', 0):.0f}%"
+                        if sentiment.get('lianban_stats'):
+                            sent_text += f"\n       连板统计: {sentiment['lianban_stats']}"
+                        enhanced_sections.append(sent_text)
+                    
+                    # 宏观环境数据
+                    macro = enhanced_data.get('macro', {})
+                    if macro:
+                        enhanced_dimensions.append('宏观环境')
+                        macro_text = "\n    ── 宏观环境 ──"
+                        if macro.get('amount_signal'):
+                            macro_text += f"\n       {macro['amount_signal']}"
+                        if macro.get('hs300_change_20d') is not None:
+                            macro_text += f"\n       沪深300近20日: {macro['hs300_change_20d']:.2f}%"
+                        if macro.get('spread_signal'):
+                            macro_text += f"\n       {macro['spread_signal']}"
+                        enhanced_sections.append(macro_text)
+                    
+                    if enhanced_sections:
+                        enhanced_context = "\n".join(enhanced_sections)
+                    
+                    self.logger.info(f"增强数据收集成功，维度: {enhanced_dimensions}")
+                except Exception as e:
+                    self.logger.warning(f"增强数据收集失败，使用基础数据: {e}")
+
+            # 6. 评分分解（8维度增强版）
+            score = self.calculate_score(df, market_type, stock_code)
             score_details = getattr(self, 'score_details', {'total': score})
 
             # 7. 获取投资建议
@@ -1255,8 +1757,8 @@ class StockAnalyzer:
             }
             recommendation = self.get_recommendation(score, market_type, tech_data, news_data)
 
-            # 8. 构建更全面的prompt
-            prompt = f"""作为专业的股票分析师，请对{stock_name}({stock_code})进行全面分析:
+            # 8. 构建更全面的prompt（增强版：包含多维度数据）
+            prompt = f"""作为拥有20年经验的顶级股票分析师，精通技术分析、基本面分析、资金流分析和宏观经济分析，请对{stock_name}({stock_code})进行全面深度分析:
 
     1. 基本信息:
        - 股票名称: {stock_name}
@@ -1287,6 +1789,14 @@ class StockAnalyzer:
 
     5. 投资建议: {recommendation}"""
 
+            # 注入增强版多维度数据
+            if enhanced_context:
+                prompt += f"""
+
+    ═══ 增强版多维度数据（{', '.join(enhanced_dimensions)}）═══
+    {enhanced_context}
+    """
+
             # 检查是否有JSON解析失败的情况
             if hasattr(self, 'json_match_flag') and not self.json_match_flag and 'original_content' in news_data:
                 # 如果JSON解析失败，直接使用原始内容
@@ -1310,14 +1820,17 @@ class StockAnalyzer:
 
     9. 市场情绪: {news_data.get('market_sentiment', 'neutral')}
 
-    请提供以下内容:
+    请基于以上全面的多维度数据，提供以下深度分析:
     1. 技术面分析 - 详细分析价格走势、支撑压力位、主要技术指标的信号
-    2. 行业和市场环境 - 结合新闻和行业动态分析公司所处环境
-    3. 风险因素 - 识别潜在风险点
-    4. 具体交易策略 - 给出明确的买入/卖出建议，包括入场点、止损位和目标价位
-    5. 短期(1周)、中期(1-3个月)和长期(半年)展望
+    2. 基本面评估 - 结合PE/PB/ROE等数据评估估值水平和盈利能力
+    3. 资金面分析 - 分析主力资金动向、北向资金态度和量能变化含义
+    4. 行业和市场环境 - 结合新闻、行业动态、市场情绪和宏观环境分析公司所处环境
+    5. 风险因素 - 从技术面、基本面、资金面、市场环境等多维度识别潜在风险
+    6. 具体交易策略 - 给出明确的买入/卖出建议，包括入场点、止损位和目标价位
+    7. 短期(1周)、中期(1-3个月)和长期(半年)展望
 
     请基于数据给出客观分析，不要过度乐观或悲观。分析应该包含具体数据和百分比，避免模糊表述。
+    如果某些数据不可用，请基于已有数据进行分析，不要简单标注为"未知"。
     """
 
             messages = [{"role": "user", "content": prompt}]
@@ -1424,8 +1937,8 @@ class StockAnalyzer:
             # 计算技术指标
             df = self.calculate_indicators(df)
             self.logger.info(f"计算技术指标完成")
-            # 评分系统
-            score = self.calculate_score(df)
+            # 评分系统（8维度增强版）
+            score = self.calculate_score(df, market_type, stock_code)
             self.logger.info(f"评分系统完成")
             # 获取最新数据
             latest = df.iloc[-1]
@@ -1560,8 +2073,8 @@ class StockAnalyzer:
             # 计算技术指标
             df = self.calculate_indicators(df)
 
-            # 简化评分计算
-            score = self.calculate_score(df)
+            # 简化评分计算（8维度增强版）
+            score = self.calculate_score(df, market_type, stock_code)
 
             # 获取最新数据
             latest = df.iloc[-1]
@@ -1875,11 +2388,30 @@ class StockAnalyzer:
             # 获取支撑压力位
             sr_levels = self.identify_support_resistance(df)
 
-            # 计算技术面评分
+            # 计算8维度综合评分
+            comprehensive_score = self.calculate_score(df, market_type, stock_code)
+            score_details = getattr(self, 'score_details', {'total': comprehensive_score})
+
+            # 计算技术面评分（保持兼容）
             technical_score = self.calculate_technical_score(df)
 
             # 获取股票信息
             stock_info = self.get_stock_info(stock_code)
+
+            # 获取增强版多维度数据
+            enhanced_data = {}
+            if ENHANCED_COLLECTOR_AVAILABLE:
+                try:
+                    collector = get_collector()
+                    enhanced_data = collector.collect_comprehensive_data(stock_code, market_type)
+                    # 如果增强数据中有更好的股票名称和行业信息，使用它
+                    industry_info = enhanced_data.get('industry', {})
+                    if industry_info.get('stock_name') and industry_info['stock_name'] != 'N/A':
+                        stock_info['股票名称'] = industry_info['stock_name']
+                    if industry_info.get('industry') and industry_info['industry'] != 'N/A':
+                        stock_info['行业'] = industry_info['industry']
+                except Exception as e:
+                    self.logger.warning(f"增强数据收集失败: {e}")
 
             # 确保technical_score包含必要的字段
             if 'total' not in technical_score:
@@ -1926,12 +2458,24 @@ class StockAnalyzer:
                     'support_resistance': sr_levels
                 },
                 'scores': technical_score,
+                'comprehensive_scores': score_details,
                 'recommendation': {
-                    'action': self.get_recommendation(technical_score['total']),
+                    'action': self.get_recommendation(score_details.get('total', technical_score['total'])),
                     'key_points': []
                 },
                 'ai_analysis': self.get_ai_analysis(df, stock_code)
             }
+
+            # 注入增强版多维度数据到报告
+            if enhanced_data:
+                enhanced_report['enhanced_data'] = {
+                    'fundamental': enhanced_data.get('fundamental', {}),
+                    'capital_flow': enhanced_data.get('capital_flow', {}),
+                    'market_sentiment': enhanced_data.get('market_sentiment', {}),
+                    'macro': enhanced_data.get('macro', {}),
+                    'news': enhanced_data.get('news', {}),
+                    'data_dimensions': [k for k in ['fundamental', 'capital_flow', 'market_sentiment', 'macro', 'news'] if enhanced_data.get(k)]
+                }
 
             # 最后检查并修复报告结构
             self._validate_and_fix_report(enhanced_report)

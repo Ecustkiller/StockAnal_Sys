@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import openai
 import logging
 from logging.handlers import RotatingFileHandler
+from enhanced_data_collector import get_collector
 """
 
 """
@@ -24,6 +25,7 @@ logging.basicConfig(level=logging.INFO,
 class ScenarioPredictor:
     def __init__(self, analyzer, openai_api_key=None, openai_model=None):
         self.analyzer = analyzer
+        self.data_collector = get_collector()
         self.openai_api_key = os.getenv('OPENAI_API_KEY', os.getenv('OPENAI_API_KEY'))
         self.openai_api_url = os.getenv('OPENAI_API_URL', 'https://api.openai.com/v1')
         self.openai_model = os.getenv('OPENAI_API_MODEL', 'gemini-2.0-pro-exp-02-05')
@@ -46,9 +48,16 @@ class ScenarioPredictor:
             # 根据历史波动率计算情景
             scenarios = self._calculate_scenarios(df, days)
 
-            # 使用AI生成各情景的分析
+            # 收集增强版多维度数据
+            enhanced_data = {}
+            try:
+                enhanced_data = self.data_collector.collect_comprehensive_data(stock_code, market_type)
+            except Exception as e:
+                logging.warning(f"增强数据收集失败，使用基础数据: {e}")
+
+            # 使用AI生成各情景的分析（注入增强数据）
             if self.openai_api_key:
-                ai_analysis = self._generate_ai_analysis(stock_code, stock_info, df, scenarios)
+                ai_analysis = self._generate_ai_analysis(stock_code, stock_info, df, scenarios, enhanced_data)
                 scenarios.update(ai_analysis)
 
             # logging.info(f"返回前的情景预测：{scenarios}")
@@ -57,86 +66,188 @@ class ScenarioPredictor:
             # logging.info(f"生成情景预测出错: {str(e)}")
             return {}
 
-    def _calculate_scenarios(self, df, days):
-        """基于历史数据计算三种情景的价格预测"""
+    def _calculate_scenarios(self, df, days, n_simulations=5000):
+        """
+        基于蒙特卡洛模拟(GBM几何布朗运动)计算价格预测
+        
+        GBM模型: dS = μ·S·dt + σ·S·dW
+        离散化: S(t+1) = S(t) * exp((μ - σ²/2)·dt + σ·√dt·Z)
+        
+        参数:
+            df: 历史价格DataFrame
+            days: 预测天数
+            n_simulations: 模拟路径数量（默认5000条）
+        
+        输出:
+            概率锥（5%/25%/50%/75%/95%分位数）+ VaR + 三情景
+        """
         current_price = df.iloc[-1]['close']
-
-        # 计算历史波动率和移动均线
-        volatility = df['Volatility'].mean() / 100  # 转换为小数
-        daily_volatility = volatility / np.sqrt(252)  # 转换为日波动率
-        ma20 = df.iloc[-1]['MA20']
-        ma60 = df.iloc[-1]['MA60']
-
-        # 计算乐观情景（上涨至压力位或突破）
-        optimistic_return = 0.15  # 15%上涨
-        if df.iloc[-1]['BB_upper'] > current_price:
-            optimistic_target = df.iloc[-1]['BB_upper'] * 1.05  # 突破上轨5%
-        else:
-            optimistic_target = current_price * (1 + optimistic_return)
-
-        # 计算中性情景（震荡，围绕当前价格或20日均线波动）
-        neutral_target = (current_price + ma20) / 2
-
-        # 计算悲观情景（下跌至支撑位或跌破）
-        pessimistic_return = -0.12  # 12%下跌
-        if df.iloc[-1]['BB_lower'] < current_price:
-            pessimistic_target = df.iloc[-1]['BB_lower'] * 0.95  # 跌破下轨5%
-        else:
-            pessimistic_target = current_price * (1 + pessimistic_return)
-
-        # 计算预期时间
-        time_periods = np.arange(1, days + 1)
-
-        # 生成乐观路径
-        opt_path = [current_price]
-        for _ in range(days):
-            daily_return = (optimistic_target / current_price) ** (1 / days) - 1
-            random_component = np.random.normal(0, daily_volatility)
-            new_price = opt_path[-1] * (1 + daily_return + random_component / 2)
-            opt_path.append(new_price)
-
-        # 生成中性路径
-        neu_path = [current_price]
-        for _ in range(days):
-            daily_return = (neutral_target / current_price) ** (1 / days) - 1
-            random_component = np.random.normal(0, daily_volatility)
-            new_price = neu_path[-1] * (1 + daily_return + random_component)
-            neu_path.append(new_price)
-
-        # 生成悲观路径
-        pes_path = [current_price]
-        for _ in range(days):
-            daily_return = (pessimistic_target / current_price) ** (1 / days) - 1
-            random_component = np.random.normal(0, daily_volatility)
-            new_price = pes_path[-1] * (1 + daily_return + random_component / 2)
-            pes_path.append(new_price)
-
+        
+        # ========== 1. 估计GBM参数 ==========
+        # 计算对数收益率
+        log_returns = np.log(df['close'] / df['close'].shift(1)).dropna()
+        
+        # 日均收益率（漂移项μ）
+        mu_daily = log_returns.mean()
+        # 日波动率（扩散项σ）
+        sigma_daily = log_returns.std()
+        
+        # 年化参数（用于展示）
+        mu_annual = mu_daily * 252
+        sigma_annual = sigma_daily * np.sqrt(252)
+        
+        # 时间步长
+        dt = 1.0  # 1个交易日
+        
+        # ========== 2. 蒙特卡洛模拟 ==========
+        np.random.seed(None)  # 每次运行不同结果
+        
+        # 生成随机数矩阵 (n_simulations x days)
+        Z = np.random.standard_normal((n_simulations, days))
+        
+        # GBM离散化公式: S(t+1) = S(t) * exp((μ - σ²/2)·dt + σ·√dt·Z)
+        drift = (mu_daily - 0.5 * sigma_daily ** 2) * dt
+        diffusion = sigma_daily * np.sqrt(dt) * Z
+        
+        # 计算每日收益率
+        daily_returns = np.exp(drift + diffusion)
+        
+        # 构建价格路径矩阵 (n_simulations x (days+1))
+        price_paths = np.zeros((n_simulations, days + 1))
+        price_paths[:, 0] = current_price
+        
+        for t in range(days):
+            price_paths[:, t + 1] = price_paths[:, t] * daily_returns[:, t]
+        
+        # ========== 3. 计算概率锥（分位数） ==========
+        percentiles = [5, 10, 25, 50, 75, 90, 95]
+        probability_cone = {}
+        for p in percentiles:
+            probability_cone[f'p{p}'] = np.percentile(price_paths, p, axis=0).tolist()
+        
+        # ========== 4. 计算VaR和CVaR ==========
+        final_prices = price_paths[:, -1]
+        final_returns = (final_prices - current_price) / current_price * 100  # 百分比收益
+        
+        # VaR: 在给定置信水平下的最大预期损失
+        var_95 = np.percentile(final_returns, 5)   # 95%置信度VaR
+        var_99 = np.percentile(final_returns, 1)   # 99%置信度VaR
+        
+        # CVaR (条件VaR / 期望损失): 超过VaR时的平均损失
+        cvar_95 = final_returns[final_returns <= var_95].mean()
+        cvar_99 = final_returns[final_returns <= var_99].mean()
+        
+        # VaR金额
+        var_95_amount = current_price * var_95 / 100
+        var_99_amount = current_price * var_99 / 100
+        
+        # ========== 5. 模拟统计信息 ==========
+        expected_price = np.mean(final_prices)
+        median_price = np.median(final_prices)
+        std_price = np.std(final_prices)
+        
+        # 上涨/下跌概率
+        prob_up = np.mean(final_prices > current_price) * 100
+        prob_down = 100 - prob_up
+        
+        # 涨幅超过10%/20%的概率
+        prob_up_10 = np.mean(final_prices > current_price * 1.10) * 100
+        prob_up_20 = np.mean(final_prices > current_price * 1.20) * 100
+        # 跌幅超过10%/20%的概率
+        prob_down_10 = np.mean(final_prices < current_price * 0.90) * 100
+        prob_down_20 = np.mean(final_prices < current_price * 0.80) * 100
+        
+        # 最大涨幅和最大跌幅
+        max_return = (np.max(final_prices) / current_price - 1) * 100
+        min_return = (np.min(final_prices) / current_price - 1) * 100
+        
+        # ========== 6. 提取三情景路径（用于兼容旧前端） ==========
+        # 乐观 = 90%分位数路径，中性 = 50%分位数路径，悲观 = 10%分位数路径
+        opt_path = probability_cone['p90']
+        neu_path = probability_cone['p50']
+        pes_path = probability_cone['p10']
+        
+        optimistic_target = opt_path[-1]
+        neutral_target = neu_path[-1]
+        pessimistic_target = pes_path[-1]
+        
         # 生成日期序列
         start_date = datetime.now()
         dates = [(start_date + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(days + 1)]
-
-        # 组织结果
+        
+        # ========== 7. 抽样展示路径（取10条代表性路径） ==========
+        sample_indices = np.random.choice(n_simulations, min(10, n_simulations), replace=False)
+        sample_paths = {}
+        for idx, si in enumerate(sample_indices):
+            sample_paths[f'path_{idx}'] = price_paths[si].tolist()
+        
+        # ========== 8. 组织结果 ==========
         return {
             'current_price': current_price,
+            'simulation_type': 'monte_carlo_gbm',
+            'n_simulations': n_simulations,
+            'prediction_days': days,
+            'dates': dates,
+            
+            # GBM参数
+            'gbm_params': {
+                'mu_daily': float(mu_daily),
+                'sigma_daily': float(sigma_daily),
+                'mu_annual': float(mu_annual),
+                'sigma_annual': float(sigma_annual),
+            },
+            
+            # 概率锥数据
+            'probability_cone': {k: [round(v, 4) for v in vals] for k, vals in probability_cone.items()},
+            
+            # VaR风险指标
+            'var': {
+                'var_95': round(float(var_95), 2),
+                'var_99': round(float(var_99), 2),
+                'cvar_95': round(float(cvar_95), 2),
+                'cvar_99': round(float(cvar_99), 2),
+                'var_95_amount': round(float(var_95_amount), 2),
+                'var_99_amount': round(float(var_99_amount), 2),
+            },
+            
+            # 模拟统计
+            'statistics': {
+                'expected_price': round(float(expected_price), 2),
+                'median_price': round(float(median_price), 2),
+                'std_price': round(float(std_price), 2),
+                'prob_up': round(float(prob_up), 1),
+                'prob_down': round(float(prob_down), 1),
+                'prob_up_10': round(float(prob_up_10), 1),
+                'prob_up_20': round(float(prob_up_20), 1),
+                'prob_down_10': round(float(prob_down_10), 1),
+                'prob_down_20': round(float(prob_down_20), 1),
+                'max_return': round(float(max_return), 2),
+                'min_return': round(float(min_return), 2),
+            },
+            
+            # 抽样路径（用于前端展示）
+            'sample_paths': sample_paths,
+            
+            # 三情景（兼容旧前端）
             'optimistic': {
-                'target_price': optimistic_target,
-                'change_percent': (optimistic_target / current_price - 1) * 100,
-                'path': dict(zip(dates, opt_path))
+                'target_price': round(float(optimistic_target), 2),
+                'change_percent': round(float((optimistic_target / current_price - 1) * 100), 2),
+                'path': dict(zip(dates, [round(float(p), 4) for p in opt_path]))
             },
             'neutral': {
-                'target_price': neutral_target,
-                'change_percent': (neutral_target / current_price - 1) * 100,
-                'path': dict(zip(dates, neu_path))
+                'target_price': round(float(neutral_target), 2),
+                'change_percent': round(float((neutral_target / current_price - 1) * 100), 2),
+                'path': dict(zip(dates, [round(float(p), 4) for p in neu_path]))
             },
             'pessimistic': {
-                'target_price': pessimistic_target,
-                'change_percent': (pessimistic_target / current_price - 1) * 100,
-                'path': dict(zip(dates, pes_path))
+                'target_price': round(float(pessimistic_target), 2),
+                'change_percent': round(float((pessimistic_target / current_price - 1) * 100), 2),
+                'path': dict(zip(dates, [round(float(p), 4) for p in pes_path]))
             }
         }
 
-    def _generate_ai_analysis(self, stock_code, stock_info, df, scenarios):
-        """使用AI生成各情景的分析说明，包含风险和机会因素"""
+    def _generate_ai_analysis(self, stock_code, stock_info, df, scenarios, enhanced_data=None):
+        """使用AI生成各情景的分析说明，包含风险和机会因素（增强版：整合多维度数据）"""
         try:
             openai.api_key = self.openai_api_key
             openai.api_base = self.openai_api_url
@@ -150,10 +261,59 @@ class ScenarioPredictor:
             macd = df.iloc[-1]['MACD']
             signal = df.iloc[-1]['Signal']
     
+            # 构建增强版数据上下文
+            enhanced_context = ""
+            if enhanced_data:
+                # 基本面数据
+                fund = enhanced_data.get('fundamental', {})
+                if fund:
+                    enhanced_context += f"\n    3. 基本面数据:\n"
+                    if fund.get('pe_ttm') is not None:
+                        enhanced_context += f"    - PE(TTM): {fund['pe_ttm']:.2f} ({fund.get('valuation_signal', '')})\n"
+                    if fund.get('roe') is not None:
+                        enhanced_context += f"    - ROE: {fund['roe']:.2f}% ({fund.get('profitability_signal', '')})\n"
+                    if fund.get('debt_ratio') is not None:
+                        enhanced_context += f"    - 资产负债率: {fund['debt_ratio']:.2f}% ({fund.get('financial_health', '')})\n"
+                    if fund.get('revenue_growth_3y') is not None:
+                        enhanced_context += f"    - 营收3年CAGR: {fund['revenue_growth_3y']:.2f}% ({fund.get('growth_signal', '')})\n"
+                    if fund.get('total_mv') is not None:
+                        enhanced_context += f"    - 总市值: {fund['total_mv']:.2f}亿 ({fund.get('market_cap_level', '')})\n"
+    
+                # 资金流数据
+                capital = enhanced_data.get('capital_flow', {})
+                if capital:
+                    enhanced_context += f"\n    4. 资金流向:\n"
+                    if capital.get('capital_signal'):
+                        enhanced_context += f"    - {capital['capital_signal']}\n"
+                    if capital.get('north_signal'):
+                        enhanced_context += f"    - 北向资金: {capital['north_signal']}\n"
+    
+                # 市场情绪数据
+                sentiment = enhanced_data.get('market_sentiment', {})
+                if sentiment:
+                    enhanced_context += f"\n    5. 市场情绪:\n"
+                    if sentiment.get('sentiment_signal'):
+                        enhanced_context += f"    - {sentiment['sentiment_signal']}\n"
+                    if sentiment.get('emotion_phase'):
+                        enhanced_context += f"    - BJCJ情绪阶段: 【{sentiment['emotion_phase']}】 建议仓位: {sentiment.get('suggested_position', '')}\n"
+                    if sentiment.get('fbl') is not None:
+                        enhanced_context += f"    - 封板率: {sentiment['fbl']:.0f}%, 赚钱效应: {sentiment.get('earn_rate', 0):.0f}%\n"
+    
+                # 宏观数据
+                macro = enhanced_data.get('macro', {})
+                if macro:
+                    enhanced_context += f"\n    6. 宏观环境:\n"
+                    if macro.get('amount_signal'):
+                        enhanced_context += f"    - {macro['amount_signal']}\n"
+                    if macro.get('spread_signal'):
+                        enhanced_context += f"    - {macro['spread_signal']}\n"
+                    if macro.get('hs300_change_20d') is not None:
+                        enhanced_context += f"    - 沪深300近20日: {macro['hs300_change_20d']:.2f}%\n"
+    
             # 构建提示词，增加对风险和机会因素的要求
             prompt = f"""分析股票{stock_code}（{stock_info.get('股票名称', '未知')}）的三种市场情景:
     
-    1. 当前数据:
+    1. 当前技术面数据:
     - 当前价格: {current_price}
     - 均线: MA5={ma5}, MA20={ma20}, MA60={ma60}
     - RSI: {rsi}
@@ -163,8 +323,8 @@ class ScenarioPredictor:
     - 乐观情景: {scenarios['optimistic']['target_price']:.2f} ({scenarios['optimistic']['change_percent']:.2f}%)
     - 中性情景: {scenarios['neutral']['target_price']:.2f} ({scenarios['neutral']['change_percent']:.2f}%)
     - 悲观情景: {scenarios['pessimistic']['target_price']:.2f} ({scenarios['pessimistic']['change_percent']:.2f}%)
-    
-    请提供以下内容，格式为JSON:
+    {enhanced_context}
+    请结合以上所有维度的数据（技术面、基本面、资金流、市场情绪、宏观环境），提供以下内容，格式为JSON:
     {{
     "optimistic_analysis": "乐观情景分析(100字以内)...",
     "neutral_analysis": "中性情景分析(100字以内)...",

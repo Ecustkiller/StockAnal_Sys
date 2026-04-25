@@ -9,10 +9,12 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from enhanced_data_collector import get_collector
 
 class RiskMonitor:
     def __init__(self, analyzer):
         self.analyzer = analyzer
+        self.data_collector = get_collector()
 
     def analyze_stock_risk(self, stock_code, market_type='A'):
         """分析单只股票的风险"""
@@ -26,13 +28,21 @@ class RiskMonitor:
             trend_risk = self._analyze_trend_risk(df)
             reversal_risk = self._analyze_reversal_risk(df)
             volume_risk = self._analyze_volume_risk(df)
+            
+            # 增强版：增加宏观风险和市场情绪风险维度
+            macro_risk = self._analyze_macro_risk(stock_code)
+            sentiment_risk = self._analyze_sentiment_risk()
+            capital_risk = self._analyze_capital_flow_risk(stock_code)
 
-            # 综合评估总体风险
+            # 综合评估总体风险（增强版权重）
             total_risk_score = (
-                    volatility_risk['score'] * 0.3 +
-                    trend_risk['score'] * 0.3 +
-                    reversal_risk['score'] * 0.25 +
-                    volume_risk['score'] * 0.15
+                    volatility_risk['score'] * 0.20 +
+                    trend_risk['score'] * 0.20 +
+                    reversal_risk['score'] * 0.15 +
+                    volume_risk['score'] * 0.10 +
+                    macro_risk['score'] * 0.15 +
+                    sentiment_risk['score'] * 0.10 +
+                    capital_risk['score'] * 0.10
             )
 
             # 确定风险等级
@@ -78,6 +88,27 @@ class RiskMonitor:
                     "message": f"成交量异常，{volume_risk['pattern']}，可能预示价格波动"
                 })
 
+            if macro_risk['score'] >= 70:
+                alerts.append({
+                    "type": "macro",
+                    "level": "高",
+                    "message": f"宏观环境风险较高，{macro_risk.get('detail', '宏观环境不利')}"
+                })
+
+            if sentiment_risk['score'] >= 70:
+                alerts.append({
+                    "type": "sentiment",
+                    "level": "高",
+                    "message": f"市场情绪风险较高，{sentiment_risk.get('detail', '市场情绪极端')}"
+                })
+
+            if capital_risk['score'] >= 70:
+                alerts.append({
+                    "type": "capital_flow",
+                    "level": "高",
+                    "message": f"资金流向风险较高，{capital_risk.get('detail', '主力资金持续流出')}"
+                })
+
             return {
                 "total_risk_score": total_risk_score,
                 "risk_level": risk_level,
@@ -85,7 +116,11 @@ class RiskMonitor:
                 "trend_risk": trend_risk,
                 "reversal_risk": reversal_risk,
                 "volume_risk": volume_risk,
-                "alerts": alerts
+                "macro_risk": macro_risk,
+                "sentiment_risk": sentiment_risk,
+                "capital_risk": capital_risk,
+                "alerts": alerts,
+                "risk_dimensions": 7
             }
 
         except Exception as e:
@@ -259,6 +294,164 @@ class RiskMonitor:
             "pattern": pattern,
             "risk_level": "高" if score >= 60 else "中" if score >= 30 else "低"
         }
+
+    def _analyze_macro_risk(self, stock_code=''):
+        """分析宏观环境风险（新增维度）"""
+        try:
+            macro = self.data_collector.get_macro_data()
+            if not macro:
+                return {'score': 50, 'risk_level': '中', 'detail': '宏观数据不可用'}
+
+            score = 50  # 基础分
+
+            # 成交额分位判断
+            amount_pct = macro.get('market_amount_percentile', 50)
+            if amount_pct < 20:
+                score += 20  # 成交极度萎缩，市场冷淡
+                detail = '市场成交极度萎缩，流动性风险高'
+            elif amount_pct > 90:
+                score += 15  # 成交过热，可能见顶
+                detail = '市场成交过热，可能接近阶段性顶部'
+            elif amount_pct > 80:
+                score += 5
+                detail = '市场成交活跃'
+            else:
+                score -= 10
+                detail = '市场成交正常'
+
+            # 沪深300趋势判断
+            hs300_20d = macro.get('hs300_change_20d', 0)
+            if hs300_20d is not None:
+                if hs300_20d < -10:
+                    score += 20
+                    detail = '大盘近20日跌幅超过10%，系统性风险高'
+                elif hs300_20d < -5:
+                    score += 10
+                elif hs300_20d > 10:
+                    score += 5  # 涨幅过大也有回调风险
+
+            # 中美利差判断
+            spread = macro.get('us_cn_spread')
+            if spread is not None:
+                if spread > 2:
+                    score += 10
+                elif spread < 0:
+                    score -= 5
+
+            score = max(0, min(100, score))
+            return {
+                'score': score,
+                'risk_level': '高' if score >= 60 else '中' if score >= 30 else '低',
+                'detail': detail,
+                'hs300_20d': hs300_20d,
+                'amount_percentile': amount_pct
+            }
+        except Exception as e:
+            return {'score': 50, 'risk_level': '中', 'detail': f'宏观风险分析失败: {str(e)}'}
+
+    def _analyze_sentiment_risk(self):
+        """分析市场情绪风险（新增维度）"""
+        try:
+            sentiment = self.data_collector.get_market_sentiment_data()
+            if not sentiment:
+                return {'score': 50, 'risk_level': '中', 'detail': '情绪数据不可用'}
+
+            score = 50  # 基础分
+            detail = '市场情绪正常'
+
+            # 封板率判断
+            fbl = sentiment.get('fbl', 50)
+            if fbl > 85:
+                score += 15  # 过度乐观，可能见顶
+                detail = '市场情绪极度乐观（封板率>85%），谨防回调'
+            elif fbl < 30:
+                score += 20  # 极度悲观
+                detail = '市场情绪极度悲观（封板率<30%）'
+            elif fbl < 50:
+                score += 10
+                detail = '市场情绪偏冷'
+
+            # 跌停数量判断
+            dt_cnt = sentiment.get('dt_cnt', 0)
+            if dt_cnt > 30:
+                score += 20
+                detail = f'跌停股数量异常（{dt_cnt}只），市场恐慌'
+            elif dt_cnt > 15:
+                score += 10
+
+            # 赚钱效应判断
+            earn_rate = sentiment.get('earn_rate', 50)
+            if earn_rate < 25:
+                score += 15
+                detail = f'赚钱效应极差（{earn_rate:.0f}%），市场风险高'
+            elif earn_rate < 35:
+                score += 5
+
+            # BJCJ情绪阶段
+            phase = sentiment.get('emotion_phase', '')
+            if phase == '空仓期':
+                score += 20
+                detail = 'BJCJ判定为空仓期，市场风险极高'
+            elif phase == '防御期':
+                score += 10
+
+            score = max(0, min(100, score))
+            return {
+                'score': score,
+                'risk_level': '高' if score >= 60 else '中' if score >= 30 else '低',
+                'detail': detail,
+                'fbl': fbl,
+                'dt_cnt': dt_cnt,
+                'earn_rate': earn_rate,
+                'emotion_phase': phase
+            }
+        except Exception as e:
+            return {'score': 50, 'risk_level': '中', 'detail': f'情绪风险分析失败: {str(e)}'}
+
+    def _analyze_capital_flow_risk(self, stock_code):
+        """分析资金流向风险（新增维度）"""
+        try:
+            capital = self.data_collector.get_capital_flow_data(stock_code)
+            if not capital:
+                return {'score': 50, 'risk_level': '中', 'detail': '资金流数据不可用'}
+
+            score = 50  # 基础分
+            detail = '资金流向正常'
+
+            # 主力资金判断
+            pos_days = capital.get('positive_days', 0)
+            neg_days = capital.get('negative_days', 0)
+            total_flow = capital.get('main_net_inflow_total', 0)
+
+            if neg_days > pos_days and total_flow < 0:
+                if neg_days >= 7:
+                    score += 25
+                    detail = f'主力资金持续流出（{neg_days}天净流出），风险较高'
+                else:
+                    score += 10
+                    detail = '主力资金偏向流出'
+            elif pos_days > neg_days and total_flow > 0:
+                score -= 15
+                detail = '主力资金持续流入，风险较低'
+
+            # 北向资金判断
+            north_5d = capital.get('north_money_5d', 0)
+            if north_5d is not None and north_5d < -100:
+                score += 15
+                detail = f'北向资金近5日大幅流出({north_5d:.0f}亿)，外资态度谨慎'
+            elif north_5d is not None and north_5d > 100:
+                score -= 10
+
+            score = max(0, min(100, score))
+            return {
+                'score': score,
+                'risk_level': '高' if score >= 60 else '中' if score >= 30 else '低',
+                'detail': detail,
+                'main_flow_total': total_flow,
+                'north_5d': north_5d
+            }
+        except Exception as e:
+            return {'score': 50, 'risk_level': '中', 'detail': f'资金流风险分析失败: {str(e)}'}
 
     def analyze_portfolio_risk(self, portfolio):
         """分析投资组合整体风险"""

@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多模型协作分析 - 智能分析系统</title>
+    <!-- Bootstrap CSS -->
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="/static/css/all.min.css" rel="stylesheet">
+    <style>
+        .model-card {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .model-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .model-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px 8px 0 0;
+        }
+        .consensus-high { background-color: #d4edda; border-color: #c3e6cb; }
+        .consensus-medium { background-color: #fff3cd; border-color: #ffeaa7; }
+        .consensus-low { background-color: #f8d7da; border-color: #f5c6cb; }
+        .score-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            color: white;
+        }
+        .score-high { background-color: #28a745; }
+        .score-medium { background-color: #ffc107; color: #212529; }
+        .score-low { background-color: #dc3545; }
+        .analysis-loading {
+            text-align: center;
+            padding: 40px;
+        }
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+        .final-conclusion {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .model-comparison-table {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line me-2"></i>智能分析系统
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/dashboard">仪表盘</a>
+                <a class="nav-link active" href="/multi_model_analysis">多模型分析</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h4 class="mb-0">
+                            <i class="fas fa-brain me-2"></i>多模型协作分析
+                            <small class="text-light">让多个AI模型同时分析，获得更可靠的投资建议</small>
+                        </h4>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <label for="stockCode" class="form-label">股票代码</label>
+                                <input type="text" class="form-control" id="stockCode" placeholder="请输入股票代码，如：000001">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="marketType" class="form-label">市场类型</label>
+                                <select class="form-select" id="marketType">
+                                    <option value="A">A股</option>
+                                    <option value="US">美股</option>
+                                    <option value="HK">港股</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="button" class="btn btn-primary w-100" onclick="startMultiModelAnalysis()">
+                                    <i class="fas fa-rocket me-2"></i>开始分析
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 可用模型展示 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-muted mb-3">
+                                    <i class="fas fa-cogs me-2"></i>可用AI模型
+                                </h6>
+                                <div id="availableModels" class="d-flex flex-wrap gap-2">
+                                    <!-- 动态加载模型列表 -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分析结果区域 -->
+        <div id="analysisResults" class="mt-4" style="display: none;">
+            <!-- 最终结论 -->
+            <div id="finalConclusion" class="final-conclusion">
+                <h4><i class="fas fa-bullseye me-2"></i>综合分析结论</h4>
+                <div id="conclusionContent"></div>
+            </div>
+
+            <!-- 共识分析 -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-handshake me-2"></i>模型共识分析</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="consensusAnalysis"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模型对比表 -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="model-comparison-table">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>模型</th>
+                                        <th>投资建议</th>
+                                        <th>评分</th>
+                                        <th>风险等级</th>
+                                        <th>置信度</th>
+                                        <th>分析时间</th>
+                                        <th>状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modelComparisonTable">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 详细分析结果 -->
+            <div class="row">
+                <div class="col-12">
+                    <h5 class="mb-3">
+                        <i class="fas fa-microscope me-2"></i>详细分析结果
+                    </h5>
+                    <div id="detailedResults" class="row">
+                        <!-- 动态生成模型分析卡片 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 加载状态 -->
+        <div id="loadingAnalysis" class="analysis-loading" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">分析中...</span>
+            </div>
+            <h5 class="mt-3">多模型协作分析中...</h5>
+            <p class="text-muted">正在调用多个AI模型进行并行分析，请稍候</p>
+            <div id="analysisProgress" class="progress mt-3" style="height: 6px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/jquery.js"></script>
+    
+    <script>
+        // 页面加载时获取可用模型
+        $(document).ready(function() {
+            loadAvailableModels();
+        });
+
+        // 加载可用模型列表
+        function loadAvailableModels() {
+            $.get('/api/available_models')
+                .done(function(data) {
+                    const container = $('#availableModels');
+                    container.empty();
+                    
+                    data.models.forEach(function(model) {
+                        const badge = $(`
+                            <span class="badge bg-secondary">
+                                <i class="fas fa-robot me-1"></i>${model}
+                            </span>
+                        `);
+                        container.append(badge);
+                    });
+                })
+                .fail(function() {
+                    $('#availableModels').html('<span class="text-danger">无法加载模型列表</span>');
+                });
+        }
+
+        // 开始多模型分析
+        function startMultiModelAnalysis() {
+            const stockCode = $('#stockCode').val().trim();
+            const marketType = $('#marketType').val();
+            
+            if (!stockCode) {
+                alert('请输入股票代码');
+                return;
+            }
+            
+            // 显示加载状态
+            $('#analysisResults').hide();
+            $('#loadingAnalysis').show();
+            
+            // 模拟进度条
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 90) progress = 90;
+                $('#analysisProgress .progress-bar').css('width', progress + '%');
+            }, 500);
+            
+            // 调用分析API
+            $.ajax({
+                url: '/api/multi_model_analysis',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    stock_code: stockCode,
+                    market_type: marketType
+                }),
+                timeout: 300000 // 5分钟超时
+            })
+            .done(function(data) {
+                clearInterval(progressInterval);
+                $('#analysisProgress .progress-bar').css('width', '100%');
+                
+                setTimeout(() => {
+                    $('#loadingAnalysis').hide();
+                    displayAnalysisResults(data);
+                    $('#analysisResults').show();
+                }, 500);
+            })
+            .fail(function(xhr) {
+                clearInterval(progressInterval);
+                $('#loadingAnalysis').hide();
+                
+                let errorMsg = '分析失败';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg = xhr.responseJSON.error;
+                }
+                
+                alert('分析失败: ' + errorMsg);
+            });
+        }
+
+        // 显示分析结果
+        function displayAnalysisResults(data) {
+            // 显示最终结论
+            displayFinalConclusion(data.final_conclusion);
+            
+            // 显示共识分析
+            displayConsensusAnalysis(data.consensus_analysis);
+            
+            // 显示模型对比表
+            displayModelComparison(data.individual_results);
+            
+            // 显示详细结果
+            displayDetailedResults(data.individual_results);
+        }
+
+        // 显示最终结论
+        function displayFinalConclusion(conclusion) {
+            const content = `
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h5>${conclusion.final_conclusion}</h5>
+                        <p class="mb-2">
+                            <strong>平均置信度:</strong> ${(conclusion.average_confidence * 100).toFixed(1)}%
+                        </p>
+                        <p class="mb-0">
+                            <strong>分析时间:</strong> ${conclusion.analysis_time} | 
+                            <strong>总耗时:</strong> ${conclusion.total_analysis_time}秒
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <div class="text-white">
+                            <i class="fas fa-chart-line fa-3x"></i>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('#conclusionContent').html(content);
+        }
+
+        // 显示共识分析
+        function displayConsensusAnalysis(consensus) {
+            const consensusClass = 
+                consensus.consensus_ratio >= 0.8 ? 'consensus-high' : 
+                consensus.consensus_ratio >= 0.6 ? 'consensus-medium' : 'consensus-low';
+            
+            const content = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card ${consensusClass} h-100">
+                            <div class="card-body text-center">
+                                <h6>共识程度</h6>
+                                <h3>${consensus.consensus_level}</h3>
+                                <p class="mb-0">一致性: ${(consensus.consensus_ratio * 100).toFixed(1)}%</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h6>投资建议分布</h6>
+                                ${Object.entries(consensus.recommendation_distribution).map(([rec, count]) => 
+                                    `<div class="d-flex justify-content-between">
+                                        <span>${rec}</span>
+                                        <span class="badge bg-primary">${count}个模型</span>
+                                    </div>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('#consensusAnalysis').html(content);
+        }
+
+        // 显示模型对比表
+        function displayModelComparison(results) {
+            const tbody = $('#modelComparisonTable');
+            tbody.empty();
+            
+            results.forEach(function(result) {
+                const scoreClass = 
+                    result.score >= 7 ? 'score-high' : 
+                    result.score >= 4 ? 'score-medium' : 'score-low';
+                
+                const statusBadge = result.error ? 
+                    '<span class="badge bg-danger">失败</span>' : 
+                    '<span class="badge bg-success">成功</span>';
+                
+                const row = `
+                    <tr>
+                        <td><i class="fas fa-robot me-2"></i>${result.model_name}</td>
+                        <td>${result.recommendation || '未知'}</td>
+                        <td>
+                            <div class="score-circle ${scoreClass}" style="width: 40px; height: 40px; font-size: 14px;">
+                                ${result.score || 'N/A'}
+                            </div>
+                        </td>
+                        <td>${result.risk_level || '未知'}</td>
+                        <td>${result.confidence ? (result.confidence * 100).toFixed(1) + '%' : 'N/A'}</td>
+                        <td>${result.analysis_time || 0}秒</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+                tbody.append(row);
+            });
+        }
+
+        // 显示详细结果
+        function displayDetailedResults(results) {
+            const container = $('#detailedResults');
+            container.empty();
+            
+            results.forEach(function(result, index) {
+                if (result.error) {
+                    const errorCard = `
+                        <div class="col-md-6 mb-4">
+                            <div class="model-card">
+                                <div class="model-header bg-danger">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-robot me-2"></i>${result.model_name}
+                                        <span class="badge bg-light text-dark ms-2">分析失败</span>
+                                    </h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-danger mb-0">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        ${result.error}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.append(errorCard);
+                    return;
+                }
+                
+                const scoreClass = 
+                    result.score >= 7 ? 'score-high' : 
+                    result.score >= 4 ? 'score-medium' : 'score-low';
+                
+                const card = `
+                    <div class="col-md-6 mb-4">
+                        <div class="model-card">
+                            <div class="model-header">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-robot me-2"></i>${result.model_name}
+                                    </h6>
+                                    <div class="score-circle ${scoreClass}">
+                                        ${result.score}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-3">
+                                    <div class="col-6">
+                                        <strong>投资建议:</strong><br>
+                                        <span class="badge bg-primary">${result.recommendation}</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>风险等级:</strong><br>
+                                        <span class="badge bg-warning">${result.risk_level}</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <strong>技术分析:</strong>
+                                    <p class="text-muted small">${result.technical_analysis}</p>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <strong>关键理由:</strong>
+                                    <ul class="small">
+                                        ${(result.key_reasons || []).map(reason => 
+                                            `<li>${reason}</li>`
+                                        ).join('')}
+                                    </ul>
+                                </div>
+                                
+                                <div class="d-flex justify-content-between text-muted small">
+                                    <span>置信度: ${result.confidence ? (result.confidence * 100).toFixed(1) + '%' : 'N/A'}</span>
+                                    <span>分析时间: ${result.analysis_time}秒</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.append(card);
+            });
+        }
+
+        // 回车键触发分析
+        $('#stockCode').keypress(function(e) {
+            if (e.which == 13) {
+                startMultiModelAnalysis();
+            }
+        });
+    </script>
+</body>
+</html>

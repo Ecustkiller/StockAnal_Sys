@@ -141,11 +141,9 @@ class IndexIndustryAnalyzer:
                 if (pd.Timestamp.now() - cache_time).total_seconds() < 3600:
                     return cached_result
 
-            # 获取行业成分股
-            stocks = ak.stock_board_industry_cons_em(symbol=industry)
-
-            # 提取股票代码列表
-            stock_list = stocks['代码'].tolist() if '代码' in stocks.columns else []
+            # 获取行业成分股（使用 Tushare）
+            from tushare_industry_helper import get_industry_stock_codes_ts
+            stock_list = get_industry_stock_codes_ts(industry)
 
             if not stock_list:
                 return {"error": "获取行业成分股失败"}

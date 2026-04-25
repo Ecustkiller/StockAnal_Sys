@@ -177,7 +177,7 @@ class IndustryAnalyzer:
             return None
 
     def get_industry_stocks(self, industry):
-        """获取行业成分股"""
+        """获取行业成分股（使用 Tushare 数据源）"""
         try:
             # 缓存键
             cache_key = f"industry_stocks_{industry}"
@@ -190,52 +190,23 @@ class IndustryAnalyzer:
                     self.logger.info(f"从缓存获取行业成分股: {industry}")
                     return cached_data
 
-            # 获取行业成分股
-            self.logger.info(f"获取 {industry} 行业成分股")
+            # 使用 Tushare 获取行业成分股
+            self.logger.info(f"获取 {industry} 行业成分股（Tushare）")
 
             result = []
             try:
-                # 1. 首先尝试直接使用行业名称
-                try:
-                    stocks = ak.stock_board_industry_cons_em(symbol=industry)
-                    self.logger.info(f"使用行业名称 '{industry}' 成功获取成分股")
-                except Exception as direct_error:
-                    self.logger.warning(f"使用行业名称获取成分股失败: {str(direct_error)}")
-                    # 2. 尝试使用行业代码
-                    industry_code = self._get_industry_code(industry)
-                    if industry_code:
-                        self.logger.info(f"尝试使用行业代码 {industry_code} 获取成分股")
-                        stocks = ak.stock_board_industry_cons_em(symbol=industry_code)
-                    else:
-                        # 如果无法获取行业代码，抛出异常，进入模拟数据生成
-                        raise ValueError(f"无法找到行业 '{industry}' 对应的代码")
+                from tushare_industry_helper import get_industry_stocks_ts
+                stocks = get_industry_stocks_ts(industry)
 
-                # 打印列名以便调试
-                self.logger.info(f"行业成分股数据列名: {stocks.columns.tolist()}")
-
-                # 转换为字典列表
-                if not stocks.empty:
-                    for _, row in stocks.iterrows():
-                        try:
-                            item = {
-                                "code": str(row["代码"]),
-                                "name": str(row["名称"]),
-                                "price": self._safe_float(row["最新价"]),
-                                "change": self._safe_float(row["涨跌幅"]),
-                                "change_amount": self._safe_float(row["涨跌额"]) if "涨跌额" in row else 0.0,
-                                "volume": self._safe_float(row["成交量"]) if "成交量" in row else 0.0,
-                                "turnover": self._safe_float(row["成交额"]) if "成交额" in row else 0.0,
-                                "amplitude": self._safe_float(row["振幅"]) if "振幅" in row else 0.0,
-                                "turnover_rate": self._safe_float(row["换手率"]) if "换手率" in row else 0.0
-                            }
-                            result.append(item)
-                        except Exception as e:
-                            self.logger.warning(f"处理行业成分股数据行时出错: {str(e)}")
-                            continue
+                if stocks:
+                    self.logger.info(f"Tushare 获取到 {len(stocks)} 只 {industry} 行业成分股")
+                    result = stocks
+                else:
+                    self.logger.warning(f"Tushare 未获取到行业成分股，使用模拟数据")
+                    result = self._generate_mock_industry_stocks(industry)
 
             except Exception as e:
-                # 3. 如果上述方法都失败，生成模拟数据
-                self.logger.warning(f"无法通过API获取行业成分股，使用模拟数据: {str(e)}")
+                self.logger.warning(f"Tushare 获取行业成分股失败，使用模拟数据: {str(e)}")
                 result = self._generate_mock_industry_stocks(industry)
 
             # 缓存结果
